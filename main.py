@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cache import close_redis, init_redis
 from dependencies.auth import load_jwt_public_key
-from routers import author, book, review
+#from routers import author, book, review
 from settings import settings
 
 
@@ -52,6 +52,11 @@ app.add_middleware(
 )
 
 # Include routers
+from routers import author
+
 app.include_router(author.router)
-app.include_router(book.router)
-app.include_router(review.router)
+
+# Legacy routers disabled (awaiting Phase 2-4 rewrite)
+# from routers import book, review
+# app.include_router(book.router)
+# app.include_router(review.router)
