@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import EditHistory, EditAction
 
@@ -87,8 +87,8 @@ def calculate_changes(old_data: dict[str, Any] | None, new_data: dict[str, Any] 
 # Edit Recording
 # ========================================
 
-def record_edit(
-    db: Session,
+async def record_edit(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     action: EditAction,
@@ -102,7 +102,7 @@ def record_edit(
     Create an edit history record with calculated changes.
     
     Args:
-        db: Database session
+        db: Async database session
         entity_type: Type of entity (author, book, review, collection)
         entity_id: Entity ID
         action: Edit action type
@@ -133,14 +133,14 @@ def record_edit(
     )
     
     db.add(history)
-    db.flush()  # Get ID without committing
+    await db.flush()  # Get ID without committing
     
     return history
 
 
-def record_create(db: Session, entity_type: str, entity_id: int, user_id: UUID, data: dict[str, Any]) -> EditHistory:
+async def record_create(db: AsyncSession, entity_type: str, entity_id: int, user_id: UUID, data: dict[str, Any]) -> EditHistory:
     """Convenience function for recording creation."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -153,8 +153,8 @@ def record_create(db: Session, entity_type: str, entity_id: int, user_id: UUID, 
     )
 
 
-def record_update(
-    db: Session,
+async def record_update(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     user_id: UUID,
@@ -164,7 +164,7 @@ def record_update(
     old_version: int
 ) -> EditHistory:
     """Convenience function for recording updates."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -177,8 +177,8 @@ def record_update(
     )
 
 
-def record_delete(
-    db: Session,
+async def record_delete(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     user_id: UUID,
@@ -186,7 +186,7 @@ def record_delete(
     version: int
 ) -> EditHistory:
     """Convenience function for recording soft deletes."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -199,8 +199,8 @@ def record_delete(
     )
 
 
-def record_approval(
-    db: Session,
+async def record_approval(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     user_id: UUID,
@@ -210,7 +210,7 @@ def record_approval(
     old_version: int
 ) -> EditHistory:
     """Convenience function for recording approvals."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -223,8 +223,8 @@ def record_approval(
     )
 
 
-def record_rejection(
-    db: Session,
+async def record_rejection(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     user_id: UUID,
@@ -234,7 +234,7 @@ def record_rejection(
     old_version: int
 ) -> EditHistory:
     """Convenience function for recording rejections."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -247,8 +247,8 @@ def record_rejection(
     )
 
 
-def record_recovery(
-    db: Session,
+async def record_recovery(
+    db: AsyncSession,
     entity_type: str,
     entity_id: int,
     user_id: UUID,
@@ -258,7 +258,7 @@ def record_recovery(
     old_version: int
 ) -> EditHistory:
     """Convenience function for recording soft delete recovery."""
-    return record_edit(
+    return await record_edit(
         db=db,
         entity_type=entity_type,
         entity_id=entity_id,

@@ -1,0 +1,182 @@
+"""
+Database connection and async session tests.
+Tests database configuration and connectivity.
+"""
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_async_db, async_engine
+
+
+@pytest.mark.asyncio
+async def test_database_connection():
+    """Test basic database connection."""
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("SELECT 1 as test"))
+        row = result.fetchone()
+        assert row[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_session_creation():
+    """Test async session can be created."""
+    async for db in get_async_db():
+        assert isinstance(db, AsyncSession)
+        # Test simple query
+        result = await db.execute(text("SELECT version()"))
+        version = result.scalar()
+        assert "PostgreSQL" in version
+        break  # Only need first iteration
+
+
+@pytest.mark.asyncio
+async def test_database_tables_exist():
+    """Test that all expected tables exist."""
+    expected_tables = {
+        'authors',
+        'books',
+        'book_author',
+        'reviews',
+        'collections',
+        'collection_books',
+        'pending_uploads',
+        'edit_history',
+        'author_follows',
+        'book_subscriptions',
+        'collection_subscriptions',
+        'review_votes',
+    }
+    
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+        """))
+        actual_tables = {row[0] for row in result.fetchall()}
+        
+        # Check that all expected tables exist
+        missing = expected_tables - actual_tables
+        assert not missing, f"Missing tables: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_database_indexes_exist():
+    """Test that key indexes exist."""
+    key_indexes = [
+        'ix_books_search_tsv',  # FTS index
+        'idx_authors_name_trgm',  # Trigram index
+        'ix_books_tags_gin',  # GIN index for tags
+        'ix_authors_linked_user_id',  # New index from Phase 1
+        'ix_books_file_format',  # New index from Phase 1
+    ]
+    
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("""
+            SELECT indexname 
+            FROM pg_indexes 
+            WHERE schemaname = 'public'
+        """))
+        actual_indexes = {row[0] for row in result.fetchall()}
+        
+        for idx in key_indexes:
+            assert idx in actual_indexes, f"Missing index: {idx}"
+
+
+@pytest.mark.asyncio
+async def test_database_constraints_exist():
+    """Test that key constraints exist."""
+    async with async_engine.begin() as conn:
+        # Check for CHECK constraints
+        result = await conn.execute(text("""
+            SELECT conname, conrelid::regclass::text as table_name
+            FROM pg_constraint
+            WHERE contype = 'c'
+            AND connamespace = 'public'::regnamespace
+        """))
+        constraints = [(row[0], row[1]) for row in result.fetchall()]
+        
+        # Should have at least some constraints from Phase 1
+        constraint_names = [c[0] for c in constraints]
+        
+        # Check for some key constraints
+        expected_patterns = ['authors_name_not_empty', 'books_title_not_empty']
+        for pattern in expected_patterns:
+            found = any(pattern in name for name in constraint_names)
+            assert found, f"Missing constraint matching: {pattern}"
+
+
+@pytest.mark.asyncio
+async def test_books_tags_column_type():
+    """Test that books.tags is ARRAY type (not JSONB)."""
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("""
+            SELECT data_type, udt_name
+            FROM information_schema.columns
+            WHERE table_name = 'books' AND column_name = 'tags'
+        """))
+        row = result.fetchone()
+        assert row is not None, "books.tags column not found"
+        assert row[0] == 'ARRAY', f"Expected ARRAY, got {row[0]}"
+
+
+@pytest.mark.asyncio  
+async def test_edit_history_unique_constraint():
+    """Test that edit_history has unique constraint on (entity_type, entity_id, version)."""
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("""
+            SELECT conname
+            FROM pg_constraint
+            WHERE contype = 'u'
+            AND conrelid = 'edit_history'::regclass
+        """))
+        constraints = [row[0] for row in result.fetchall()]
+        
+        # Should have unique constraint on version
+        assert any('version' in c for c in constraints), \
+            "Missing unique constraint on edit_history version"
+
+
+@pytest.mark.asyncio
+async def test_collection_books_position_unique():
+    """Test that collection_books has unique constraint on (collection_id, position)."""
+    async with async_engine.begin() as conn:
+        result = await conn.execute(text("""
+            SELECT conname
+            FROM pg_constraint
+            WHERE contype = 'u'
+            AND conrelid = 'collection_books'::regclass
+        """))
+        constraints = [row[0] for row in result.fetchall()]
+        
+        # Should have unique constraint on position
+        assert any('position' in c for c in constraints), \
+            "Missing unique constraint on collection_books position"
+
+
+@pytest.mark.asyncio
+async def test_async_session_transaction():
+    """Test that async session supports transactions."""
+    async for db in get_async_db():
+        # Start implicit transaction by executing a query
+        result = await db.execute(text("SELECT 1"))
+        assert result.scalar() == 1
+        
+        # Rollback should work (not commit since this is a test)
+        await db.rollback()
+        break
+
+
+@pytest.mark.asyncio
+async def test_connection_pool_config():
+    """Test that connection pool is configured correctly."""
+    assert async_engine.pool.size() == 10, "Pool size should be 10"
+    # Note: max_overflow and other settings are internal to engine

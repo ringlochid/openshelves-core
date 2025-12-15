@@ -3,9 +3,8 @@ Collection Pydantic schemas for Library Service.
 Supports curated book collections with workflow, versioning, and ordered books.
 """
 from uuid import UUID
-
+from .shared import BookRead
 from pydantic import BaseModel, Field
-
 from .shared import BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin
 
 
@@ -112,9 +111,3 @@ class CollectionListResponse(BaseModel):
     page: int
     per_page: int
     pages: int
-
-
-# Import from shared to avoid circular imports
-from .shared import BookRead
-CollectionBookRead.model_rebuild()
-CollectionDetail.model_rebuild()

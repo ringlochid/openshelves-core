@@ -5,9 +5,7 @@ Supports complete audit trail with version tracking and change diffs.
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-
 from pydantic import BaseModel, Field
-
 from models import EditAction
 from .shared import BaseSchema
 

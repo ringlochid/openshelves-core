@@ -3,9 +3,8 @@ Author Pydantic schemas for Library Service.
 Supports wiki-style author submissions with approval workflow and versioning.
 """
 from uuid import UUID
-
+from .shared import AuthorRead, BookRead
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-
 from .shared import BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin
 
 
@@ -43,10 +42,6 @@ class AuthorApproval(BaseModel):
 # ========================================
 # Response Schemas
 # ========================================
-
-# Import from shared to avoid circular imports
-from .shared import AuthorRead, BookRead
-
 
 class AuthorDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
     """Complete author information including workflow metadata."""
@@ -94,8 +89,3 @@ class AuthorListResponse(BaseModel):
     page: int
     per_page: int
     pages: int
-
-
-# BookRead already imported from shared.py above
-AuthorDetail.model_rebuild()
-AuthorWithBooks.model_rebuild()

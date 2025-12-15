@@ -10,3 +10,4 @@ __pycache__/
 .vscode/
 .env.example
 models.py.old
+keys/

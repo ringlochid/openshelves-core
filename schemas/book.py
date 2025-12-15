@@ -4,9 +4,8 @@ Supports workflow, versioning, file uploads, and subscription tracking.
 """
 from enum import Enum
 from uuid import UUID
-
+from .shared import BookRead, AuthorRead, ReviewRead
 from pydantic import BaseModel, Field
-
 from .shared import BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin
 
 
@@ -73,9 +72,6 @@ class BookApproval(BaseModel):
 # ========================================
 # Response Schemas
 # ========================================
-
-# Import from shared to avoid circular imports
-from .shared import BookRead, AuthorRead, ReviewRead
 
 
 class BookListRead(BookRead):
@@ -148,8 +144,3 @@ class PaginatedBooksCursor(BaseModel):
     """Cursor-based pagination for infinite scroll."""
     items: list[BookListRead]
     next_cursor: str | None = None
-
-
-# AuthorRead and ReviewRead already imported from shared.py above
-BookListRead.model_rebuild()
-BookDetail.model_rebuild()

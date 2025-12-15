@@ -9,8 +9,10 @@ async_engine = create_async_engine(
     settings.DATABASE_ASYNC_URL, 
     echo=False, 
     future=True, 
-    pool_size=5, 
-    max_overflow=10
+    pool_size=10,  # Increased for better concurrency
+    max_overflow=20,
+    pool_pre_ping=True,  # Verify connections before use
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -21,14 +23,14 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # Sync engine for Alembic migrations only
-# Convert asyncpg URL to psycopg for sync operations
 sync_url = settings.DATABASE_ASYNC_URL.replace("postgresql+asyncpg://", "postgresql+psycopg://")
 sync_engine = create_engine(
     sync_url,
     echo=False,
     future=True,
-    pool_size=5,
-    max_overflow=10
+    pool_size=5,  # Smaller pool for migrations
+    max_overflow=5,
+    pool_pre_ping=True,
 )
 
 Base = declarative_base()

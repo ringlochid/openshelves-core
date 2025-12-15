@@ -16,6 +16,6 @@ def decode_cursor(cursor: str) -> dict:
         data = json.loads(raw.decode("utf-8"))
     except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(status_code=400, detail="Invalid cursor")
-    if not isinstance(data, dict) or "id" not in data or "score" not in data:
+    if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="Malformed cursor")
     return data

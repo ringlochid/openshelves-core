@@ -256,7 +256,7 @@ async def del_author(
     if not author:
         raise HTTPException(status_code=404, detail="author not found")
     book_ids = {b.id for b in author.books}
-    await db.delete(author)
+    db.delete(author)
     await db.commit()
     await invalidate_author(author_id, r, book_ids=book_ids)
     await bump_cache_version("authors:list", r)
