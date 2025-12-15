@@ -1,13 +1,65 @@
-alembic.ini
+# Environment and secrets
 .env
-.env.bak
+.env.*
+!.env.example
+keys/private*
+keys/*.pem
+!keys/public_key.pem
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+DevNotes/
 .devcontainer/
 devcontainer_test.txt
-DevNotes/
-keys/private*
-__pycache__/
-.pytest_cache/
-.vscode/
-.env.example
-models.py.old
-keys/
+data_feeding.txt
+*.old
+*.bak
+alembic.ini.local
+
+# Logs and databases
+*.log
+*.sqlite
+*.db

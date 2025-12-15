@@ -1,45 +1,130 @@
-# Library Service (FastAPI + Postgres + Redis)
+# Library Service (FastAPI + PostgreSQL + Redis)
 
-Production-oriented API for managing authors, books, and reviews. Uses FastAPI with SQLAlchemy (async), PostgreSQL for storage, and Redis for caching list/detail reads with cache-version invalidation. Deployed and exercised against App Runner + RDS + ElastiCache (TLS).
+Production-grade wiki-style content platform with RBAC, trust scoring, and jury-based governance. Complete schema redesign with workflow states, versioning, and full async support.
+
+## Development Status
+
+**Phase 1: Database Schema & Testing** ✅ **COMPLETED**
+- Complete schema redesign with UUID user IDs, workflow states, and versioning
+- 12 models with proper relationships and constraints (authors, books, reviews, collections, etc.)
+- Full async session support with optimized connection pooling
+- Edit history tracking with version conflict detection
+- 26 passing unit tests for helpers and core functionality
+- Legacy routers preserved as `.py.old` (awaiting Phase 2-4 rewrite)
+
+**Phase 2: Auth Integration & Author Workflow** ⏳ **NEXT**
+- JWT authentication with Auth Service integration
+- Trust score adjustments and RBAC implementation
+- Complete author workflow with approval/rejection system
 
 ## Stack and Capabilities
-- FastAPI + Uvicorn, Pydantic v2.
-- SQLAlchemy 2.x (async) with PostgreSQL (RDS in production); migrations via Alembic.
-- Redis caching (ElastiCache Redis, TLS, cluster-safe deletes to avoid CROSSSLOT), per-entity + versioned list caches.
-- Containerized image deployed via AWS App Runner with VPC connector to RDS/Redis.
-- Author/book/review CRUD, full-text-ish search with similarity filters, cursor/offset pagination for books.
+- **FastAPI + Uvicorn** - High-performance async web framework with Pydantic v2
+- **SQLAlchemy 2.x (async)** - Full async ORM with PostgreSQL
+- **PostgreSQL** - Advanced features (FTS, trigram search, GIN indexes, ARRAY types)
+- **Redis** - Caching with versioned invalidation
+- **Alembic** - Database migrations with custom extensions
+- **Celery** - Background tasks (cleanup, media processing)
+- **Docker** - Containerized deployment
+
+## Database Schema Highlights
+
+**Core Models:**
+- **Authors** - UUID user tracking, linked profiles, workflow states, follower counts
+- **Books** - File uploads, tags (ARRAY), full-text search, version tracking
+- **Reviews** - UUID users, voting system with helpful/unhelpful counts
+- **Collections** - Ordered book lists with position management
+- **Edit History** - Complete audit trail with field-level change tracking
+
+**Advanced Features:**
+- PostgreSQL extensions: `unaccent`, `pg_trgm` for fuzzy search
+- Full-text search with `ts_vector` and similarity ranking
+- Trigram indexes for typo-tolerant author/book search
+- GIN indexes for ARRAY operations and text search
+- CHECK constraints for data integrity (15+ constraints)
+- Optimistic locking with version conflict detection
 
 ## Running the API
-### Docker Compose (recommended)
-1) Set environment (either `.env` or export):
+
+### Docker Compose (Development)
+1) Copy environment template:
+```bash
+cp .env.example .env
+# Edit .env with your settings
 ```
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=123456
-POSTGRES_DB=library_app
-DB_HOST=db
-DB_PORT=5432
-REDIS_HOST=redis
-APP_PORT=8000
+
+2) Build and start services:
+```bash
+docker-compose up --build
 ```
-2) Build and start: `docker-compose up --build`
-3) Apply migrations (inside the app container): `alembic upgrade head`
-4) API available at `http://localhost:8000` (docs at `/docs`).
 
-### App Runner + RDS + ElastiCache (deployed)
-- Image: `681802564174.dkr.ecr.ap-southeast-2.amazonaws.com/library-app:latest`
-- DB: RDS Postgres, `DATABASE_SYNC_URL` / `DATABASE_ASYNC_URL` point to RDS.
-- Redis: ElastiCache Redis (TLS required) with `REDIS_URL=rediss://<endpoint>:6379/0`.
-- Start command can use Dockerfile CMD, or `sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"` if you want migrations on startup.
+3) Apply migrations:
+```bash
+docker compose exec app alembic upgrade head
+```
 
-## Caching Notes
-- Keys: `author:{id}`, `book:{id}`, list keys with versioning (`authors:list`, `books:list`).
-- TTL defaults to 300s. Mutations bump list versions and invalidate related detail/review caches.
-- Redis URL is built from `REDIS_*` envs; override with `REDIS_URL` if needed. For Redis cluster/TLS, use `rediss://…` and single-key deletes are used to avoid CROSSSLOT errors.
+4) Run tests:
+```bash
+docker compose exec app pytest tests/ -v
+```
 
-## Data and Seeding
-- Generate sample payload: `python scripts/generate_big_data.py` (default synthetic 50k books to `data_feeding.txt`; toggle `FETCH_FROM_OPEN_LIBRARY` for live samples).
-- Seed (async) from file: `python scripts/seed_file_async.py --base-url https://<your-app> --data-file data_feeding.txt --concurrency 10` (uses `.env` / `SEED_BASE_URL` if set).
-- Legacy sync seed: `python scripts/seed.py` (assumes `http://localhost:8000`).
+5) API available at `http://localhost:8000` (docs at `/docs`)
+
+## Testing
+
+**Unit Tests (26 tests passing):**
+```bash
+# Run all unit tests
+docker compose exec app pytest tests/ -v
+
+# Run specific test files
+docker compose exec app pytest tests/test_edit_history.py -v
+docker compose exec app pytest tests/test_cursor.py -v
+```
+
+**Test Coverage:**
+- Edit history helper (16 tests): version conflicts, change calculation, serialization
+- Cursor helper (10 tests): encoding/decoding, error handling, data types
+
+**Integration Tests:** Deferred to Phase 2 (require auth implementation)
+
+## Configuration
+
+All settings managed via `settings.py` with Pydantic BaseSettings:
+
+**Required Environment Variables:**
+- `DATABASE_ASYNC_URL` - PostgreSQL async connection (asyncpg)
+- `DATABASE_SYNC_URL` - PostgreSQL sync for Alembic (psycopg)
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB` - Redis configuration
+- `SERVICE_API_KEY` - Shared secret for Auth Service communication
+- `JWT_PUBLIC_KEY_PATH` - Path to JWT public key for validation
+
+See `.env.example` for complete configuration template.
+
+## Caching Strategy
+- **Detail caches**: `author:{id}`, `book:{id}`, `review:{id}` (TTL: 300s)
+- **List caches**: Versioned with `authors:list:v{n}`, `books:list:v{n}`
+- **Invalidation**: Mutations bump version counters, orphaning old caches
+- **Redis patterns**: Single-key operations to avoid CROSSSLOT errors in cluster mode
+
+## Development Notes
+
+**Async Session Patterns:**
+- Always use `AsyncSession` from `database.get_async_db()`
+- `db.add()`, `db.delete()` are synchronous (no await)
+- `await db.commit()`, `await db.flush()`, `await db.execute()`, `await db.refresh()`
+- Connection pool: 10 base connections, 20 max overflow, pre-ping enabled
+
+**Migration Management:**
+```bash
+# Generate migration
+docker compose exec app alembic revision --autogenerate -m "description"
+
+# Apply migrations
+docker compose exec app alembic upgrade head
+
+# Rollback one version
+docker compose exec app alembic downgrade -1
+```
 
 ## Development Tips
 - Migrations live in `migrations/`; use `alembic revision --autogenerate -m "msg"` then `alembic upgrade head`.
