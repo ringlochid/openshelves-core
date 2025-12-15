@@ -1,23 +1,39 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from cache import close_redis, init_redis
+from dependencies.auth import load_jwt_public_key
 from routers import author, book, review
 from settings import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
+    # Load JWT public key for token validation
+    try:
+        load_jwt_public_key()
+        logger.info("✓ JWT public key loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load JWT public key: {e}")
+        raise
+    
     # Initialize Redis connection
     app.state.redis = await init_redis()
+    logger.info("✓ Redis connection initialized")
+    
     try:
         yield
     finally:
         # Cleanup Redis connection
         await close_redis()
+        logger.info("✓ Redis connection closed")
 
 
 app = FastAPI(

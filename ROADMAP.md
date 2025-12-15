@@ -94,28 +94,28 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 
 ---
 
-## Phase 1: Auth Integration & Core Models (4-5 days) ⏳ NOT STARTED
+## Phase 1: Auth Integration & Core Models (4-5 days) 🔄 IN PROGRESS
 
 ### Auth Dependencies
-- [ ] Create `dependencies/auth.py`
+- [x] Create `dependencies/auth.py`
   - `get_current_user()` - Decode JWT, validate, check blacklist
   - `require_scope(*scopes)` - Dependency factory for scope checks
   - `require_role(*roles)` - Dependency factory for role checks
   - `verify_service_token()` - Validate X-Service-Token header
-- [ ] Load JWT public key at startup in `main.py`
+- [x] Load JWT public key at startup in `main.py`
 
 ### Auth Service Client
-- [ ] Create `services/auth_client.py`
+- [x] Create `services/auth_client.py`
   - `adjust_user_trust()` - Call Auth Service POST /admin/users/{user_id}/trust/adjust
   - `record_submission_outcome()` - Placeholder (handled by trust adjustment)
   - Implement retry logic and error handling
   - Add timeout configuration (10s default)
 
 ### Database Schema Redesign
-- [ ] **Completely rewrite `models.py`** with UUID user IDs and workflow fields:
+- [x] **Completely rewrite `models.py`** with UUID user IDs and workflow fields:
 
 **Core Content Tables:**
-- [ ] Update `Author` model
+- [x] Update `Author` model
   - Change to UUID foreign keys: `created_by_user_id`, `linked_user_id`
   - Add workflow fields: `status` (pending/approved/rejected), `is_public`, `is_deleted`, `deleted_at`
   - Add versioning: `version`, `last_edited_by`, `last_edited_at`
@@ -123,28 +123,29 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   - Add `bio` field (Text)
   - Keep `name`, `avatar_key`
 
-- [ ] Update `Book` model
+- [x] Update `Book` model
   - Change to UUID: `created_by_user_id`
   - Add workflow: `status`, `is_public`, `is_deleted`, `deleted_at`
   - Add versioning: `version`, `last_edited_by`, `last_edited_at`
   - Add social: `subscriber_count`
   - Add media: `file_key`, `file_format` (pdf/epub/mobi)
-  - Keep `isbn` as optional (rename from `book_isbn`)
-  - Keep existing: `title`, `year`, `genre_name`, `description`, `cover_key`, `search_tsv`
+  - Remove `isbn`
+  - Remove `genre_name` add `tags`(JSONB + GIN index)
+  - Keep existing: `title`, `year`, `description`, `cover_key`, `search_tsv`
 
-- [ ] Update `Review` model
+- [x] Update `Review` model
   - Change `reviewer_name` → `user_id` (UUID)
-  - Add helpfulness: `helpful_count`, `unhelpful_count`, `trust_awarded`
+  - Add helpfulness: `helpful_count`, `unhelpful_count`, `trust_awarded`(-5 ~ +5, negative for penalty)
   - Add soft delete: `is_deleted`, `deleted_at`
   - Keep: `book_id`, `rating`, `comment`
 
-- [ ] Update `PendingUpload` model
+- [x] Update `PendingUpload` model
   - Change `user_id` from int → UUID
   - Add: `upload_type`, `entity_type`, `entity_id`
   - Update: `expires_at` default to 10 minutes
 
 **New Tables:**
-- [ ] Create `Collection` model
+- [x] Create `Collection` model
   - Fields: `id`, `name`, `description`, `cover_key`
   - Ownership: `created_by_user_id` (UUID)
   - Workflow: `status`, `is_public`, `is_deleted`, `deleted_at`
@@ -152,45 +153,47 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   - Social: `subscriber_count`
   - Timestamps: `created_at`, `updated_at`
 
-- [ ] Create `CollectionBook` model (association table)
+- [x] Create `CollectionBook` model (association table)
   - `collection_id`, `book_id`, `position`
 
-- [ ] Create `EditHistory` model
+- [x] Create `EditHistory` model
   - Fields: `id`, `entity_type`, `entity_id`, `action`, `user_id`
   - History: `version`, `parent_version`, `old_data`, `new_data`, `changes` (all JSONB)
   - Timestamp: `created_at`
   - Index: `(entity_type, entity_id, created_at DESC)`
 
-- [ ] Create `AuthorFollow` model
+- [x] Create `AuthorFollow` model
   - `user_id` (UUID), `author_id`, `created_at`
   - Primary key: `(user_id, author_id)`
 
-- [ ] Create `BookSubscription` model
+- [x] Create `BookSubscription` model
   - `user_id` (UUID), `book_id`, `created_at`
   - Primary key: `(user_id, book_id)`
 
-- [ ] Create `CollectionSubscription` model
+- [x] Create `CollectionSubscription` model
   - `user_id` (UUID), `collection_id`, `created_at`
   - Primary key: `(user_id, collection_id)`
 
-- [ ] Create `ReviewVote` model
+- [x] Create `ReviewVote` model
   - `user_id` (UUID), `review_id`, `vote` (helpful/unhelpful), `created_at`
   - Primary key: `(user_id, review_id)`
   - Check constraint: `vote IN ('helpful', 'unhelpful')`
 
-- [ ] Add all necessary indexes for performance
-- [ ] Add check constraints (rating 1-5, year > 0, etc.)
+- [x] Add all necessary indexes for performance
+- [x] Add check constraints (rating 1-5, year > 0, etc.)
 
 ### PostgreSQL Extensions & Search Features
 **IMPORTANT: These features exist in old migrations but are NOT in models.py - must be preserved!**
 
-- [ ] **Enable PostgreSQL extensions** (in migration `upgrade()`):
+**Note: The genre name has changed to tags so don't use genre but make tags in the tsv("setweight(to_tsvector('english', coalesce(genre_name, '')), 'B') no longer valid)**
+
+- [x] **Enable PostgreSQL extensions** (in migration `upgrade()`):
   ```python
   op.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
   op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
   ```
 
-- [ ] **Create immutable_unaccent function** (for functional indexes):
+- [x] **Create immutable_unaccent function** (for functional indexes):
   ```python
   op.execute("""
       CREATE OR REPLACE FUNCTION immutable_unaccent(text)
@@ -203,7 +206,7 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   """)
   ```
 
-- [ ] **Add GIN indexes for full-text search on Book**:
+- [x] **Add GIN indexes for full-text search on Book**:
   - `search_tsv` column (already in models.py as Computed column)
   - GIN index: `ix_books_search_tsv` using gin on `search_tsv`
   - GIN trigram: `idx_books_title_trgm` using gin on `title gin_trgm_ops`
@@ -223,7 +226,7 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   )
   ```
 
-- [ ] **Add GIN trigram indexes for Author similarity search**:
+- [x] **Add GIN trigram indexes for Author similarity search**:
   - On `name`: `idx_authors_name_trgm` using `immutable_unaccent(name) gin_trgm_ops`
   - On `email`: `idx_authors_email_trgm` using `immutable_unaccent(email) gin_trgm_ops`
   ```python
@@ -242,13 +245,13 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   ```
 
 ### Migrations
-- [ ] Generate fresh migration: `alembic revision --autogenerate -m "complete_schema_redesign"`
-- [ ] **Manually add** PostgreSQL extensions, immutable_unaccent function, and GIN indexes to migration
-- [ ] Review migration file for correctness (ensure all search features included)
-- [ ] Apply migration: `alembic upgrade head`
-- [ ] Verify all tables created correctly
-- [ ] Test full-text search: `SELECT * FROM books WHERE search_tsv @@ to_tsquery('english', 'python')`
-- [ ] Test trigram search: `SELECT * FROM authors WHERE similarity(name, 'tolkien') > 0.3`
+- [x] Generate fresh migration: `alembic revision --autogenerate -m "complete_schema_redesign"`
+- [x] **Manually add** PostgreSQL extensions, immutable_unaccent function, and GIN indexes to migration
+- [x] Review migration file for correctness (ensure all search features included)
+- [x] Apply migration: `alembic upgrade head`
+- [x] Verify all tables created correctly
+- [x] Test full-text search: `SELECT * FROM books WHERE search_tsv @@ to_tsquery('english', 'python')`
+- [x] Test trigram search: `SELECT * FROM authors WHERE similarity(name, 'tolkien') > 0.3`
 
 ### Schema Updates
 - [ ] Update `schemas/author.py`
@@ -420,9 +423,10 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 - [ ] Backup old `routers/book.py` as `book.py.old`
 - [ ] Refactor `routers/book.py` with workflow
 
-**Public Endpoints:**
+**Public Endpoints(rate limit with ip):**
 - [ ] `GET /books` - List public books
   - Keep existing cursor pagination and similarity search
+  - Chang add a tags parameter to filtering using tags, remove any genre related logic.
   - Filter: `is_public=True`, `is_deleted=False`, `status=approved`
   - Return: `PaginatedBooks`
 

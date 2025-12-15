@@ -1,51 +1,155 @@
-from typing import List
-from pydantic import BaseModel, Field
-from .shared import ReviewBase, AuthorBase
+"""
+Book Pydantic schemas for Library Service.
+Supports workflow, versioning, file uploads, and subscription tracking.
+"""
 from enum import Enum
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+from .shared import BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin
+
+
+# ========================================
+# Enums for Sorting
+# ========================================
 
 class SortField(str, Enum):
+    """Fields available for sorting books."""
     by_similarity = "similarity"
     by_title = "title"
     by_year = "year"
+    by_rating = "rating"
+    by_subscribers = "subscribers"
+
 
 class SortDirection(str, Enum):
+    """Sort order direction."""
     asc = "asc"
     desc = "desc"
 
+
 class BookSortControl(BaseModel):
-    sort_field : SortField | None
-    sort_direction : SortDirection | None
+    """Sort control for book queries."""
+    sort_field: SortField | None = None
+    sort_direction: SortDirection | None = None
+
+
+# ========================================
+# Create/Update Schemas
+# ========================================
 
 class BookCreate(BaseModel):
-    title: str
-    year: int | None = None
-    book_isbn: str | None = None
-    genre_name: str | None = None
-    description: str | None = None
-    author_ids: list[int] = Field(default_factory=list)
+    """Schema for creating a new book submission."""
+    title: str = Field(..., min_length=1, max_length=500, description="Book title")
+    year: int | None = Field(None, gt=0, description="Publication year")
+    description: str | None = Field(None, description="Book description")
+    tags: list[str] = Field(default_factory=list, description="Tags like ['fantasy', 'classic']")
+    cover_key: str | None = Field(None, description="S3 key for cover image")
+    file_key: str | None = Field(None, description="S3 key for book file (PDF/EPUB/MOBI)")
+    file_format: str | None = Field(None, pattern="^(pdf|epub|mobi)$", description="File format")
+    author_ids: list[int] = Field(default_factory=list, description="Authors to associate")
+
 
 class BookUpdate(BaseModel):
-    title: str | None = None
-    year: int | None = None
-    book_isbn: str | None = None
-    genre_name: str | None = None
+    """Schema for updating an existing book (versioned)."""
+    title: str | None = Field(None, min_length=1, max_length=500)
+    year: int | None = Field(None, gt=0)
     description: str | None = None
+    tags: list[str] | None = None
+    cover_key: str | None = None
+    file_key: str | None = None
+    file_format: str | None = Field(None, pattern="^(pdf|epub|mobi)$")
+    author_ids: list[int] | None = None
+    version: int = Field(..., description="Current version for optimistic locking")
 
-class BookListRead(BaseModel):
+
+class BookApproval(BaseModel):
+    """Schema for admin approval/rejection."""
+    is_public: bool = Field(..., description="Make book publicly visible")
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
+# ========================================
+# Response Schemas
+# ========================================
+
+# Import from shared to avoid circular imports
+from .shared import BookRead, AuthorRead, ReviewRead
+
+
+class BookListRead(BookRead):
+    """Book with authors for list endpoints."""
+    authors: list["AuthorRead"] = Field(default_factory=list)
+
+
+class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
+    """Complete book information including workflow metadata."""
     id: int
     title: str
     year: int | None
-    book_isbn: str | None
-    genre_name: str | None
     description: str | None
-    authors: List[AuthorBase] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    cover_key: str | None
+    file_key: str | None
+    file_format: str | None
+    created_by_user_id: UUID
+    subscriber_count: int
+    
+    # Relationships loaded separately
+    authors: list["AuthorRead"] = Field(default_factory=list)
+    reviews: list["ReviewRead"] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
 
-class BookDetailRead(BookListRead):
-    reviews: List[ReviewBase] = Field(default_factory=list)
+# ========================================
+# Subscription Schemas
+# ========================================
+
+class BookSubscriptionCreate(BaseModel):
+    """Schema for subscribing to book updates."""
+    book_id: int
+
+
+class BookSubscriptionRead(BaseSchema):
+    """Response schema for subscription relationship."""
+    book_id: int
+    created_at: str  # datetime
+
+
+# ========================================
+# Search/Filter Schemas
+# ========================================
+
+class BookSearchParams(BaseModel):
+    """Search parameters for book queries."""
+    q: str | None = Field(None, description="Full-text search query")
+    tags: list[str] = Field(default_factory=list, description="Filter by tags (AND logic)")
+    year_min: int | None = Field(None, gt=0)
+    year_max: int | None = Field(None, gt=0)
+    author_id: int | None = Field(None, description="Filter by author")
+    status: str | None = Field(None, pattern="^(PENDING|APPROVED|REJECTED)$")
+    is_public: bool | None = None
+
+
+# ========================================
+# Pagination Responses
+# ========================================
 
 class PaginatedBooks(BaseModel):
-    items: List[BookListRead]
+    """Paginated list of books."""
+    items: list[BookListRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+class PaginatedBooksCursor(BaseModel):
+    """Cursor-based pagination for infinite scroll."""
+    items: list[BookListRead]
     next_cursor: str | None = None
+
+
+# AuthorRead and ReviewRead already imported from shared.py above
+BookListRead.model_rebuild()
+BookDetail.model_rebuild()

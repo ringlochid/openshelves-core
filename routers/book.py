@@ -17,7 +17,7 @@ from schemas.book import (
     PaginatedBooks,
 )
 from schemas.review import ReviewCreate, ReviewRead
-from helpers.helpers import encode_cursor, decode_cursor
+from helpers.cursor import encode_cursor, decode_cursor
 from cache import (
     Redis,
     bump_cache_version,

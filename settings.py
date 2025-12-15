@@ -16,14 +16,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     
-    # ============================
     # Database Configuration
-    # ============================
-    DATABASE_ASYNC_URL: str = "postgresql+asyncpg://postgres:123456@localhost:5432/library_app"
+    DATABASE_ASYNC_URL: str = "postgresql+asyncpg://postgres:123456@db:5432/library_app"
+    DATABASE_SYNC_URL: str = "postgresql+psycopg://postgres:123456@localhost:5432/library_app"  # For Alembic
     
-    # ============================
     # Redis Configuration
-    # ============================
     REDIS_URL: str | None = None
     REDIS_HOST: str = "localhost"
     REDIS_PORT: str = "6379"
@@ -39,29 +36,27 @@ class Settings(BaseSettings):
             return self.REDIS_URL
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
     
-    # ============================
     # Auth Service Integration
-    # ============================
     AUTH_SERVICE_URL: str = "http://auth-service:8000"
-    SERVICE_API_KEY: str  # Required - shared secret for service-to-service auth
+    SERVICE_API_KEY: str
     JWT_PUBLIC_KEY_PATH: str = "keys/public_key.pem"
+    JWT_ALGORITHM: str = "RS256"
+    JWT_ISSUER: str = "auth-service"
+    JWT_AUDIENCE: str = "backend-services"
+    AUTH_SERVICE_TIMEOUT: int = 10  # seconds
     
-    # ============================
     # S3 Media Configuration
-    # ============================
     AWS_ACCESS_KEY_ID: str | None = None
     AWS_SECRET_ACCESS_KEY: str | None = None
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "library-app-media"
-    S3_ENDPOINT_URL: str | None = None  # For local testing with MinIO
+    S3_ENDPOINT_URL: str | None = None  # For local testing
     
     # Upload settings
     PRESIGNED_URL_EXPIRY: int = 600  # 10 minutes
-    MAX_UPLOAD_SIZE_MB: int = 500  # 500MB max for book files
+    MAX_UPLOAD_SIZE_MB: int = 20
     
-    # ============================
     # Celery Configuration
-    # ============================
     CELERY_BROKER_URL: str | None = None
     CELERY_RESULT_BACKEND: str | None = None
     
@@ -78,21 +73,15 @@ class Settings(BaseSettings):
         # Use DB 1 for results (safer than same DB as broker)
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/1"
     
-    # ============================
     # ClamAV (Virus Scanning)
-    # ============================
     CLAMAV_ENABLED: bool = False
     CLAMAV_HOST: str = "localhost"
     CLAMAV_PORT: int = 3310
     
-    # ============================
     # Content Management
-    # ============================
     SOFT_DELETE_WINDOW_HOURS: int = 24  # Recovery window for soft-deleted content
     
-    # ============================
     # API Configuration
-    # ============================
     API_TITLE: str = "Library Service API"
     API_VERSION: str = "1.0.0"
     API_DESCRIPTION: str = "Wiki-style library management with RBAC and trust scoring"
@@ -105,21 +94,17 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
     
-    # ============================
     # Development Settings
-    # ============================
-    DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 
 
 @lru_cache()
 def get_settings() -> Settings:
     """
-    Cached settings instance.
     Use this function to get settings throughout the application.
     """
     return Settings()
 
 
-# Global settings instance for convenience
+# Global settings instance
 settings = get_settings()
