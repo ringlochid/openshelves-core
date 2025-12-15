@@ -5,7 +5,7 @@ Base classes and common field groups for reuse across entities.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from models import ContentStatus
 
@@ -35,6 +35,7 @@ class WorkflowMixin(BaseModel):
     is_public: bool
     is_deleted: bool
     deleted_at: datetime | None = None
+    vote_score: int = Field(default=0, ge=0, le=5, description="Jury vote score (0-5)")
 
 
 class VersioningMixin(BaseModel):

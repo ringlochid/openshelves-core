@@ -28,6 +28,7 @@ from helpers.edit_history import (
     record_rejection,
     serialize_entity,
 )
+from helpers.jury import clear_jury_votes
 from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection, adjust_trust_for_social_bonus
 
 
@@ -195,6 +196,10 @@ async def create_author(
     """
     Submit a new author for approval.
     Requires 'authors:draft' scope (available to all users).
+    
+    Two possible paths:
+    1. Trusted users with 'authors:publish_direct' → status=APPROVED (bypasses jury queue)
+    2. Regular users → status=PENDING (requires jury voting or curator approval)
     """
     # Validate book_ids if provided
     books = []
@@ -216,7 +221,11 @@ async def create_author(
                 detail="One or more book IDs are invalid or not approved"
             )
     
-    # Create author with PENDING status
+    # Check if user can publish directly (trusted bypass)
+    user_scopes = current_user.get("scopes", [])
+    can_publish_direct = "authors:publish_direct" in user_scopes
+    
+    # Create author with status based on user privileges
     author = Author(
         name=data.name,
         email=data.email,
@@ -224,8 +233,9 @@ async def create_author(
         avatar_key=data.avatar_key,
         created_by_user_id=current_user["user_id"],
         linked_user_id=data.linked_user_id,
-        status=ContentStatus.PENDING,
-        is_public=False,
+        status=ContentStatus.APPROVED if can_publish_direct else ContentStatus.PENDING,
+        is_public=can_publish_direct,  # Public immediately if direct publish
+        vote_score=0,  # Always start at 0 (even if direct publish doesn't need it)
         version=1,
     )
     
@@ -244,8 +254,25 @@ async def create_author(
         data=serialize_entity(author),
     )
     
+    # If direct publish, adjust trust score for the submitter
+    if can_publish_direct:
+        try:
+            await adjust_trust_for_approval(
+                user_id=current_user["user_id"],
+                entity_type="author",
+                entity_id=author.id,
+                is_book=False,
+            )
+        except Exception as e:
+            # Log but don't fail the creation
+            print(f"Warning: Failed to adjust trust score: {e}")
+    
     await db.commit()
-    await db.refresh(author)
+    
+    # Refresh with books relationship loaded to avoid lazy load issues
+    query = select(Author).where(Author.id == author.id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one()
     
     return AuthorDetail.model_validate(author)
 
@@ -258,9 +285,12 @@ async def update_author(
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    Update an author submission.
-    Owner can edit if status is PENDING.
-    Admins with content:edit_any can edit any author.
+    Update an author.
+    
+    Permission Matrix:
+    - Owner with 'authors:update_own': Can update OWN author (any status)
+    - Non-owner with 'authors:edit_public_meta': Can update ANY APPROVED author (wiki mode)
+    - Both: Allowed (owner overrides wiki-editor restrictions)
     """
     # Fetch author with books
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -278,19 +308,23 @@ async def update_author(
     
     # Check permissions
     is_owner = author.created_by_user_id == current_user["user_id"]
-    has_edit_any = "authors:edit_public_meta" in current_user.get("scopes", [])
+    user_scopes = current_user.get("scopes", [])
+    has_update_own = "authors:update_own" in user_scopes
+    has_edit_public_meta = "authors:edit_public_meta" in user_scopes
     
-    if not (is_owner or has_edit_any):
+    # Permission logic:
+    # 1. Owner with authors:update_own → can update own author (any status)
+    # 2. Non-owner with authors:edit_public_meta → can update ANY APPROVED author (wiki mode)
+    if is_owner and has_update_own:
+        # Owner can update their own author
+        pass
+    elif has_edit_public_meta and author.status == ContentStatus.APPROVED:
+        # Wiki editor can update any APPROVED author
+        pass
+    else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to edit this author"
-        )
-    
-    # Owners can only edit PENDING submissions
-    if is_owner and not has_edit_any and author.status != ContentStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only edit authors with PENDING status"
+            detail="Insufficient permissions. Owner needs 'authors:update_own' or wiki-editor needs 'authors:edit_public_meta' (APPROVED only)"
         )
     
     # Store old data for history
@@ -347,20 +381,81 @@ async def update_author(
     )
     
     await db.commit()
-    await db.refresh(author)
+    
+    # Refresh with books relationship loaded to avoid lazy load issues
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one()
     
     return AuthorDetail.model_validate(author)
 
 
 @router.delete("/{author_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_author(
+async def delete_own_author(
+    author_id: int,
+    current_user: dict = Depends(require_scope("authors:delete_own")),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Delete own author (owner only).
+    Soft-deletes the author by setting is_deleted=True.
+    Requires 'authors:delete_own' scope + ownership.
+    """
+    # Fetch author
+    query = select(Author).where(Author.id == author_id)
+    result = await db.execute(query)
+    author = result.scalar_one_or_none()
+    
+    if not author:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Author not found"
+        )
+    
+    # Check ownership
+    if author.created_by_user_id != current_user["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own authors"
+        )
+    
+    if author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Author is already deleted"
+        )
+    
+    # Soft delete
+    old_data = author
+    author.is_deleted = True
+    author.deleted_at = datetime.now(timezone.utc)
+    author.is_public = False
+    author.version += 1
+    author.last_edited_by = current_user["user_id"]
+    author.last_edited_at = datetime.now(timezone.utc)
+    
+    # Record deletion in edit history
+    await record_delete(
+        db=db,
+        entity_type="author",
+        entity_id=author.id,
+        user_id=current_user["user_id"],
+        data=serialize_entity(old_data),
+        version=author.version - 1,
+    )
+    
+    await db.commit()
+
+
+@router.delete("/{author_id}/admin", status_code=status.HTTP_204_NO_CONTENT)
+async def takedown_author(
     author_id: int,
     current_user: dict = Depends(require_scope("content:takedown")),
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    Soft-delete an author (curator/admin only).
-    Sets is_deleted=True, deleted_at=now.
+    Hard removal of author (curator/admin only).
+    Used for DMCA, illegal content, spam removal.
     Requires 'content:takedown' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
     # Fetch author
@@ -380,7 +475,7 @@ async def delete_author(
             detail="Author is already deleted"
         )
     
-    # Soft delete
+    # Soft delete (hard removal)
     old_data = author
     author.is_deleted = True
     author.deleted_at = datetime.now(timezone.utc)
@@ -389,7 +484,7 @@ async def delete_author(
     author.last_edited_by = current_user["user_id"]
     author.last_edited_at = datetime.now(timezone.utc)
     
-    # Record deletion in edit history
+    # Record takedown in edit history
     await record_delete(
         db=db,
         entity_type="author",
@@ -524,8 +619,9 @@ async def approve_author(
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    Approve an author submission.
+    Curator instant approval (bypasses jury voting).
     Requires 'jury:override' scope (curator role: trust_score >= 80, reputation >= 90%).
+    Clears any existing jury votes and approves immediately.
     Awards +10 trust points to submitter.
     """
     # Fetch author
@@ -544,6 +640,9 @@ async def approve_author(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Author is already approved"
         )
+    
+    # Clear any existing jury votes (curator override bypasses voting)
+    votes_cleared = await clear_jury_votes(db, "author", author_id)
     
     # Update status
     old_data = author
@@ -579,7 +678,11 @@ async def approve_author(
         # Log but don't fail the approval
         print(f"Warning: Failed to adjust trust score: {e}")
     
-    await db.refresh(author)
+    # Refresh with books relationship loaded to avoid lazy load issues
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one()
+    
     return AuthorDetail.model_validate(author)
 
 
@@ -591,8 +694,9 @@ async def reject_author(
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    Reject an author submission.
+    Curator instant rejection (bypasses jury voting).
     Requires 'jury:override' scope (curator role: trust_score >= 80, reputation >= 90%).
+    Clears any existing jury votes and rejects immediately.
     Deducts -5 trust points from submitter.
     """
     # Fetch author
@@ -611,6 +715,9 @@ async def reject_author(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Author is already rejected"
         )
+    
+    # Clear any existing jury votes (curator override bypasses voting)
+    votes_cleared = await clear_jury_votes(db, "author", author_id)
     
     # Update status
     old_data = author
@@ -647,5 +754,9 @@ async def reject_author(
         # Log but don't fail the rejection
         print(f"Warning: Failed to adjust trust score: {e}")
     
-    await db.refresh(author)
+    # Refresh with books relationship loaded to avoid lazy load issues
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one()
+    
     return AuthorDetail.model_validate(author)

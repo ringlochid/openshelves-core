@@ -112,6 +112,9 @@ class Author(Base):
     # Social
     follower_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     
+    # Jury Voting (Democratic Approval)
+    vote_score: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -142,11 +145,24 @@ class Author(Base):
             name="ck_authors_email_format",
         ),
         CheckConstraint("follower_count >= 0", name="ck_authors_follower_count_positive"),
+        CheckConstraint("vote_score >= 0 AND vote_score <= 5", name="ck_authors_vote_score_range"),
         CheckConstraint("trim(name) != ''", name="ck_authors_name_not_empty"),
         Index("ix_authors_created_by", "created_by_user_id"),
         Index("ix_authors_linked_user", "linked_user_id"),
         Index("ix_authors_status_public", "status", "is_public"),
         Index("ix_authors_deleted", "is_deleted", "deleted_at"),
+        Index(
+            "idx_authors_name_trgm",
+            text("immutable_unaccent(name::text)"),
+            postgresql_ops={"immutable_unaccent(name::text)": "gin_trgm_ops"},
+            postgresql_using="gin",
+        ),
+        Index(
+            "idx_authors_email_trgm",
+            text("immutable_unaccent(email::text)"),
+            postgresql_ops={"immutable_unaccent(email::text)": "gin_trgm_ops"},
+            postgresql_using="gin",
+        ),
     )
 
 
@@ -188,6 +204,9 @@ class Book(Base):
     
     # Social
     subscriber_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    
+    # Jury Voting (Democratic Approval)
+    vote_score: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -240,6 +259,7 @@ class Book(Base):
             name="ck_books_file_format",
         ),
         CheckConstraint("subscriber_count >= 0", name="ck_books_subscriber_count_positive"),
+        CheckConstraint("vote_score >= 0 AND vote_score <= 5", name="ck_books_vote_score_range"),
         CheckConstraint("trim(title) != ''", name="ck_books_title_not_empty"),
         CheckConstraint(
             "(file_key IS NULL AND file_format IS NULL) OR "
@@ -251,6 +271,13 @@ class Book(Base):
         Index("ix_books_deleted", "is_deleted", "deleted_at"),
         Index("ix_books_file_format", "file_format"),
         Index("ix_books_tags_gin", "tags", postgresql_using="gin"),
+        Index("ix_books_search_tsv", "search_tsv", postgresql_using="gin"),
+        Index(
+            "idx_books_title_trgm",
+            "title",
+            postgresql_ops={"title": "gin_trgm_ops"},
+            postgresql_using="gin",
+        ),
     )
 
 
@@ -353,6 +380,9 @@ class Collection(Base):
     # Social
     subscriber_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     
+    # Jury Voting (Democratic Approval)
+    vote_score: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -381,6 +411,7 @@ class Collection(Base):
     
     __table_args__ = (
         CheckConstraint("subscriber_count >= 0", name="ck_collections_subscriber_count_positive"),
+        CheckConstraint("vote_score >= 0 AND vote_score <= 5", name="ck_collections_vote_score_range"),
         CheckConstraint("trim(name) != ''", name="ck_collections_name_not_empty"),
         Index("ix_collections_created_by", "created_by_user_id"),
         Index("ix_collections_status_public", "status", "is_public"),
@@ -645,4 +676,42 @@ class ReviewVote(Base):
     
     __table_args__ = (
         Index("ix_review_votes_review", "review_id", "created_at"),
+    )
+
+
+class JuryVote(Base):
+    """
+    Democratic voting on pending content (authors, books, collections).
+    
+    Jury members can vote on PENDING content:
+    - Contributors with jury:vote: +1 vote
+    - Trusted users with jury:vote_weighted: +5 votes
+    
+    When vote_score >= 5, content is auto-published to APPROVED.
+    """
+    __tablename__ = "jury_votes"
+    
+    # Composite Primary Key: one vote per user per entity
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(50), primary_key=True)  # 'author', 'book', 'collection'
+    entity_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    
+    # Vote value (+1 for contributor, +5 for trusted)
+    vote_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # When vote was cast
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    
+    __table_args__ = (
+        CheckConstraint("vote_value IN (1, 5)", name="ck_jury_votes_valid_values"),
+        CheckConstraint(
+            "entity_type IN ('author', 'book', 'collection')",
+            name="ck_jury_votes_valid_entity_type",
+        ),
+        Index("ix_jury_votes_entity", "entity_type", "entity_id"),
+        Index("ix_jury_votes_user", "user_id", "created_at"),
     )

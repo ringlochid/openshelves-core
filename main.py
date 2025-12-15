@@ -52,9 +52,10 @@ app.add_middleware(
 )
 
 # Include routers
-from routers import author
+from routers import author, jury
 
 app.include_router(author.router)
+app.include_router(jury.router)
 
 # Legacy routers disabled (awaiting Phase 2-4 rewrite)
 # from routers import book, review

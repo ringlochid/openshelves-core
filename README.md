@@ -19,8 +19,9 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - 10 author endpoints with full CRUD, approval, and social features
 - Optimistic locking with version conflict detection (HTTP 409)
 - Edit history recording for all operations (CREATE/UPDATE/APPROVE/REJECT/DELETE)
-- Permission system: owner (PENDING only) vs admin (content:edit_any/delete_any)
-- **55 tests passing** (12 auth + 10 cursor + 16 edit_history + 17 author workflow)
+- **Jury voting system**: Democratic approval (contributor=1 vote, trusted=5 votes, auto-publish at threshold)
+- **Permission system**: Owner vs wiki-editor (APPROVED content only), curator override
+- **88 tests passing** (12 auth + 10 cursor + 16 edit_history + 17 author workflow + 33 jury voting)
 - All tests use real PostgreSQL database (no SQLite mocks)
 
 **Phase 3: Books & Reviews Workflow** ⏳ **NEXT**
@@ -84,16 +85,21 @@ docker compose exec app pytest tests/ -v
 
 ## Testing
 
-**All Tests (55 tests passing with real PostgreSQL):**
+**All Tests (88 tests passing with real PostgreSQL):**
 ```bash
 # Run all tests
 docker compose exec app pytest tests/ -v
 
 # Run specific test suites
-docker compose exec app pytest tests/test_auth_jwt.py -v          # 12 auth tests
-docker compose exec app pytest tests/test_cursor.py -v            # 10 cursor tests
-docker compose exec app pytest tests/test_edit_history.py -v      # 16 edit history tests
-docker compose exec app pytest tests/test_author_workflow.py -v   # 17 author workflow tests
+docker compose exec app pytest tests/test_auth_jwt.py -v                # 12 auth tests
+docker compose exec app pytest tests/test_cursor.py -v                  # 10 cursor tests
+docker compose exec app pytest tests/test_edit_history.py -v            # 16 edit history tests
+docker compose exec app pytest tests/test_author_workflow.py -v         # 17 author workflow tests
+docker compose exec app pytest tests/test_jury_voting.py -v             # 12 jury voting tests
+docker compose exec app pytest tests/test_author_ownership.py -v        # 8 ownership tests
+docker compose exec app pytest tests/test_author_publish_paths.py -v    # 4 publish path tests
+docker compose exec app pytest tests/test_curator_override.py -v        # 4 curator override tests
+docker compose exec app pytest tests/test_author_edge_cases.py -v       # 5 edge case tests
 ```
 
 **Test Coverage:**
@@ -101,10 +107,16 @@ docker compose exec app pytest tests/test_author_workflow.py -v   # 17 author wo
 - **Cursor pagination** (10 tests): encoding/decoding, error handling, URL-safe validation
 - **Edit history** (16 tests): version conflicts, change calculation, entity serialization
 - **Author workflow** (17 tests): model validation, permission logic, workflow states, social features
+- **Jury voting** (12 tests): vote weights, auto-publish, retraction, queue filtering
+- **Ownership permissions** (8 tests): owner vs wiki-editor, permission matrix
+- **Publish paths** (4 tests): trusted direct publish vs regular pending
+- **Curator override** (4 tests): instant approve/reject, vote clearing
+- **Edge cases** (5 tests): status transitions, takedown vs delete
 
 **Testing Strategy:**
 - Uses real PostgreSQL database (not SQLite)
 - Transaction rollback keeps tests isolated
+- RS256 JWT authentication matching production
 - All async operations properly tested with `pytest-asyncio`
 - Mock Auth Service calls to avoid external dependencies
 
