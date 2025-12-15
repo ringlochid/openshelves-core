@@ -1,20 +1,18 @@
 import hashlib
 import json
-import os
 from typing import Any, Iterable
 
-from dotenv import load_dotenv
 from fastapi import Request
 from redis import asyncio as aioredis
+
+from settings import settings
 
 Redis = aioredis.Redis
 from_url = aioredis.from_url
 
-load_dotenv()
-
 _redis: Redis | None = None
-DEFAULT_TTL = 300
 VERSION_KEY_PREFIX = "cache:version:"
+DEFAULT_TTL = settings.DEFAULT_CACHE_TTL
 
 
 async def get_cache_version(name: str, r: Redis | None = None) -> int:
@@ -28,25 +26,12 @@ async def bump_cache_version(name: str, r: Redis | None = None) -> int:
     return int(await r.incr(f"{VERSION_KEY_PREFIX}{name}"))
 
 
-def _build_redis_url() -> str:
-    if raw := os.getenv("REDIS_URL"):
-        return raw
-
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = os.getenv("REDIS_PORT", "6379")
-    db = os.getenv("REDIS_DB", "0")
-    return f"redis://{host}:{port}/{db}"
-
-
-REDIS_URL = _build_redis_url()
-
-
 async def init_redis() -> Redis:
     """Create a single async Redis client for the process."""
     global _redis
     if _redis is None:
         _redis = from_url(
-            REDIS_URL,
+            settings.redis_url,
             decode_responses=True,
         )
     return _redis

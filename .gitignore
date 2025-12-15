@@ -1,9 +1,12 @@
 migrations/
 alembic.ini
 .env
+.env.bak
 .devcontainer/
 devcontainer_test.txt
 DevNotes/
+keys/private*
 __pycache__/
 .pytest_cache/
 .vscode/
+.env.example

@@ -41,16 +41,16 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 
 ---
 
-## Phase 0: Cleanup & Foundation (2-3 days) ⏳ IN PROGRESS
+## Phase 0: Cleanup & Foundation (2-3 days) ✅ COMPLETED
 
 ### Cleanup Tasks
-- [ ] Delete old migrations: `rm -rf migrations/versions/*.py`
-- [ ] Delete old tests: `rm -rf tests/*`
-- [ ] Delete seed scripts: `rm scripts/seed*.py scripts/generate_big_data.py`
-- [ ] Delete prototype data: `rm data_feeding.txt devcontainer_test.txt`
+- [x] Delete old migrations: `rm -rf migrations/versions/*.py`
+- [x] Delete old tests: `rm -rf tests/*`
+- [x] Delete seed scripts: `rm scripts/seed*.py scripts/generate_big_data.py`
+- [x] Delete prototype data: `rm data_feeding.txt devcontainer_test.txt`
 
 ### Configuration Setup
-- [ ] Create `settings.py` with Pydantic BaseSettings
+- [x] Create `settings.py` with Pydantic BaseSettings
   - Database configuration (async only)
   - Redis configuration
   - Auth Service integration (URL, SERVICE_API_KEY, JWT public key path)
@@ -59,37 +59,38 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   - Caching settings
   - ClamAV settings
   - Soft delete window (24h default)
-- [ ] Generate shared secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"` and put in env.
-- [ ] Copy JWT public key from Auth Service: `curl http://auth-service:8000/keys/public.pem > keys/public_key.pem`(or simply copy from the DevNotes/AuthUserServiceCopyForReference_deleteoncewired/keys/public_key.pem)
-- [ ] use postgresql+psycopg://postgres:123456@localhost:5432/library_app in `.env` for alembic for run alembic using the exposed port
-- [ ] Create `.env.example`,`.env.bak` with all required variables
-- [ ] Move all hardcoded variables in code to `.env.example`,`.env.bak`
-- [ ] Copy from `.env.example` to `.env`
-- [ ] Update `.gitignore` to exclude `.env`,`.env.example`,`keys/private*`,`.env.bak`
+- [x] Generate shared secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"` and put in env.
+- [x] Copy JWT public key from Auth Service: `curl http://auth-service:8000/keys/public.pem > keys/public_key.pem`(or simply copy from the DevNotes/AuthUserServiceCopyForReference_deleteoncewired/keys/public_key.pem)
+- [x] use postgresql+psycopg://postgres:123456@localhost:5432/library_app in `.env` for alembic for run alembic using the exposed port
+- [x] Create `.env.example`,`.env.bak` with all required variables
+- [x] Move all hardcoded variables in code to `.env.example`,`.env.bak`
+- [x] Copy from `.env.example` to `.env`
+- [x] Update `.gitignore` to exclude `.env`,`.env.example`,`keys/private*`,`.env.bak`
 
 ### Database Simplification
-- [ ] Update `database.py` to remove sync engine
-  - Remove `sync_engine`, `SessionLocal`, `get_db()`
-  - Keep only `async_engine`, `AsyncSessionLocal`, `get_async_db()`, `Base`
+- [x] Update `database.py` to remove sync engine for app (keep for Alembic)
+  - Remove `SessionLocal`, `get_db()` (no sync sessions for app)
+  - Keep `async_engine`, `AsyncSessionLocal`, `get_async_db()`, `Base`
+  - Add `sync_engine` for Alembic migrations only
   - Remove `load_dotenv()` (handled by Pydantic settings)
   - Import from `settings` instead of `os.getenv()`
 
 ### Update Existing Files
-- [ ] Update `cache.py` to use `settings` instead of `os.getenv()`
+- [x] Update `cache.py` to use `settings` instead of `os.getenv()`
   - Remove `load_dotenv()`
   - Import `settings` for Redis config
-- [ ] Update `celery_app.py` to use `settings`
+- [x] Update `celery_app.py` to use `settings`
   - Remove `load_dotenv()` and `os.getenv()`
   - Add Beat schedule for cleanup tasks (placeholder)
-- [ ] Update `main.py` to import from `settings`
+- [x] Update `main.py` to import from `settings`
   - Remove scattered config imports
-- [ ] Update `alembic/env.py` to use async engine (if needed)
 
 ### Testing
-- [ ] Test settings load from `.env`
-- [ ] Test database connection with async engine only
-- [ ] Test Redis connection
-- [ ] Test Celery app initializes correctly
+- [x] Test settings load from `.env`
+- [x] Test database connection with async engine only (and sync for Alembic)
+- [x] Test Redis connection
+- [x] Test Celery app initializes correctly
+- [x] Test FastAPI app starts successfully
 
 ---
 
