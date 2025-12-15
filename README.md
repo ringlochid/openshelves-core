@@ -12,10 +12,23 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - 26 passing unit tests for helpers and core functionality
 - Legacy routers preserved as `.py.old` (awaiting Phase 2-4 rewrite)
 
-**Phase 2: Auth Integration & Author Workflow** ⏳ **NEXT**
-- JWT authentication with Auth Service integration
-- Trust score adjustments and RBAC implementation
-- Complete author workflow with approval/rejection system
+**Phase 2: Auth Integration & Author Workflow** ✅ **COMPLETED**
+- JWT authentication with Auth Service integration (RSA public key validation)
+- Trust score adjustments with retry logic and graceful degradation
+- Complete author workflow: create → approve/reject → follow/unfollow → soft delete
+- 10 author endpoints with full CRUD, approval, and social features
+- Optimistic locking with version conflict detection (HTTP 409)
+- Edit history recording for all operations (CREATE/UPDATE/APPROVE/REJECT/DELETE)
+- Permission system: owner (PENDING only) vs admin (content:edit_any/delete_any)
+- **55 tests passing** (12 auth + 10 cursor + 16 edit_history + 17 author workflow)
+- All tests use real PostgreSQL database (no SQLite mocks)
+
+**Phase 3: Books & Reviews Workflow** ⏳ **NEXT**
+- Book workflow with approval system (+20/-10 trust, doubled from authors)
+- Review system with user_id (no more reviewer_name)
+- Review voting: helpful/unhelpful with trust scoring (±1, max ±5 per review)
+- Book subscription system with social bonuses
+- Target: 75+ tests passing
 
 ## Stack and Capabilities
 - **FastAPI + Uvicorn** - High-performance async web framework with Pydantic v2
@@ -71,21 +84,29 @@ docker compose exec app pytest tests/ -v
 
 ## Testing
 
-**Unit Tests (26 tests passing):**
+**All Tests (55 tests passing with real PostgreSQL):**
 ```bash
-# Run all unit tests
+# Run all tests
 docker compose exec app pytest tests/ -v
 
-# Run specific test files
-docker compose exec app pytest tests/test_edit_history.py -v
-docker compose exec app pytest tests/test_cursor.py -v
+# Run specific test suites
+docker compose exec app pytest tests/test_auth_jwt.py -v          # 12 auth tests
+docker compose exec app pytest tests/test_cursor.py -v            # 10 cursor tests
+docker compose exec app pytest tests/test_edit_history.py -v      # 16 edit history tests
+docker compose exec app pytest tests/test_author_workflow.py -v   # 17 author workflow tests
 ```
 
 **Test Coverage:**
-- Edit history helper (16 tests): version conflicts, change calculation, serialization
-- Cursor helper (10 tests): encoding/decoding, error handling, data types
+- **Auth validation** (12 tests): JWT decoding, scope checks, role validation, trust requirements
+- **Cursor pagination** (10 tests): encoding/decoding, error handling, URL-safe validation
+- **Edit history** (16 tests): version conflicts, change calculation, entity serialization
+- **Author workflow** (17 tests): model validation, permission logic, workflow states, social features
 
-**Integration Tests:** Deferred to Phase 2 (require auth implementation)
+**Testing Strategy:**
+- Uses real PostgreSQL database (not SQLite)
+- Transaction rollback keeps tests isolated
+- All async operations properly tested with `pytest-asyncio`
+- Mock Auth Service calls to avoid external dependencies
 
 ## Configuration
 
@@ -108,10 +129,11 @@ See `.env.example` for complete configuration template.
 
 ## Development Notes
 
-**Async Session Patterns:**
+**Async Session Patterns (SQLAlchemy 2.0):**
 - Always use `AsyncSession` from `database.get_async_db()`
-- `db.add()`, `db.delete()` are synchronous (no await)
-- `await db.commit()`, `await db.flush()`, `await db.execute()`, `await db.refresh()`
+- **IMPORTANT**: `await db.delete(obj)` - delete IS a coroutine in SQLAlchemy 2.0
+- `db.add()` is synchronous (no await needed)
+- All query operations need await: `execute()`, `commit()`, `flush()`, `refresh()`, `delete()`
 - Connection pool: 10 base connections, 20 max overflow, pre-ping enabled
 
 **Migration Management:**

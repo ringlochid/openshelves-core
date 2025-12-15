@@ -350,24 +350,45 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 
 ---
 
-## Phase 2: Auth Integration & Author Workflow (5-6 days) ⏳ NEXT
+## Phase 2: Auth Integration & Author Workflow (5-6 days) ⚠️ NEEDS COMPLETE REFACTOR
 
 **Prerequisites:** Phase 1 complete (schema, helpers, tests all passing)
 
-### Phase 2.1: Auth Implementation (2-3 days)
+**CRITICAL ISSUE IDENTIFIED**: Current implementation is **architecturally wrong** - missing the entire **jury voting system** that is the core governance mechanism of this platform!
+
+**Current Status (Incomplete)**:
+- ✅ JWT authentication with scope/role/trust validation
+- ✅ Basic author CRUD endpoints
+- ⚠️ Instant approve/reject (should be curator override ONLY)
+- ⚠️ No democratic jury voting system
+- ⚠️ Missing ownership-based permissions
+- ⚠️ Missing direct publish for trusted users
+- ⚠️ 55 tests passing (but only cover basic CRUD, not jury system)
+
+**Required Refactoring**:
+1. Add `JuryVote` table for democratic voting
+2. Implement jury queue endpoints (GET /jury/authors)
+3. Implement vote casting (POST /jury/authors/{id}/vote)
+4. Auto-publish when vote_score >= 5
+5. Separate curator override from democratic voting
+6. Add proper owner-based permissions (update_own, delete_own)
+7. Add direct publish path for trusted users
+8. Add 33 additional tests for jury system
+
+### Phase 2.1: Auth Implementation (2-3 days) ✅
 
 **Auth Dependencies:**
-- [ ] Create `dependencies/auth.py` with JWT validation
-  - `get_current_user()` - Decode JWT, validate signature, check blacklist
+- [x] Create `dependencies/auth.py` with JWT validation
+  - `get_current_user()` - Decode JWT, validate signature
   - `require_scope()` - Check user has required scope (returns 403 if missing)
   - `require_role()` - Check user has required role
   - `require_min_trust()` - Check trust_score >= threshold
   - `verify_service_token()` - Validate X-Service-Token header for internal calls
-- [ ] Load JWT public key at startup in `main.py`
-- [ ] Add proper error handling for expired/invalid tokens
+- [x] Load JWT public key at startup in `main.py`
+- [x] Add proper error handling for expired/invalid tokens
 
 **Auth Service Client:**
-- [ ] Create `services/auth_client.py` for trust score adjustments
+- [x] Create `services/auth_client.py` for trust score adjustments
   - `adjust_user_trust(user_id, delta, reason)` - POST to Auth Service
   - `get_user_info(user_id)` - GET user details (for validation)
   - Use `SERVICE_API_KEY` for authentication
@@ -375,113 +396,413 @@ Transform prototype CRUD library service into production-grade wiki-style conten
   - Handle Auth Service unavailability gracefully
 
 **Auth Testing:**
-- [ ] Create comprehensive auth tests (moved from Phase 1)
+- [x] Create comprehensive auth tests (12 tests passing)
   - Test JWT decoding (valid, expired, invalid signature, wrong audience)
   - Test scope validation (single, multiple, missing)
   - Test role validation (admin, curator, user)
   - Test trust score checks (above/below threshold)
   - Test service token validation
-  - Mock Auth Service responses for trust adjustments
 
-### Phase 2.2: Author Workflow Implementation (3 days)
+### Phase 2.2: Author Workflow Implementation (3 days) ⚠️ NEEDS COMPLETE REFACTOR
 
-### Author Router Rewrite
-- [ ] Backup old `routers/author.py` as `author.py.old`
-- [ ] Create new `routers/author.py` with complete workflow
+**Previous Status**: Basic CRUD endpoints completed, but **architecture is fundamentally flawed**
 
-**Public Endpoints (No Auth):**
-- [ ] `GET /authors` - List public approved authors
-  - Filter: `is_public=True`, `is_deleted=False`, `status=approved`
-  - Add similarity search on name (keep existing logic)
-  - Return: `List[AuthorRead]`
+**What Was Built (Partial)**:
+- ✅ Public list/detail endpoints (GET /authors, GET /authors/{id})
+- ✅ Create author endpoint (POST /authors → PENDING)
+- ✅ Update author with version check (PATCH /authors/{id})
+- ✅ Follow/unfollow social system (POST/DELETE /authors/{id}/follow)
+- ✅ Instant approve/reject (POST /authors/{id}/approve, /reject)
 
-- [ ] `GET /authors/{id}` - Get author detail
-  - Check: `is_deleted=False`
-  - If not approved/public: return 403 (unless authenticated owner/curator)
-  - Return: `AuthorRead`
+**What's Missing (Critical)**:
+- ❌ Jury voting system (democratic approval by community)
+- ❌ JuryVote table and vote accumulation logic
+- ❌ Jury queue endpoints (GET /jury/authors)
+- ❌ Vote casting endpoints (POST /jury/authors/{id}/vote)
+- ❌ Auto-publish when vote_score >= 5
+- ❌ Direct publish path for trusted users (`authors:publish_direct`)
+- ❌ Proper owner-based permissions (`authors:update_own`, `authors:delete_own`)
+- ❌ Separate curator override from democratic voting
 
-- [ ] `GET /authors/{id}/books` - Books by author
-  - Return only public books
-  - Return: `List[BookBase]`
+### Phase 2.2.1: Architecture Issues - Jury System Missing ❌ CRITICAL
 
-**Authenticated Endpoints:**
-- [ ] `POST /authors` - Create author (pending approval)
-  - Requires: `content:submit` scope
-  - Set: `status=pending`, `is_public=False`, `created_by_user_id=current_user`
-  - Optional: `link_to_self` flag to set `linked_user_id`
+**PROBLEM IDENTIFIED:**
+Current implementation is **fundamentally wrong**. It uses instant approve/reject instead of the democratic **jury voting system** defined in Auth Service RBAC.
+
+**What's Wrong:**
+1. ❌ No `JuryVote` table or voting mechanism
+2. ❌ No jury queue endpoints (`GET /jury/authors`)
+3. ❌ No vote endpoints (`POST /jury/authors/{id}/vote`)
+4. ❌ Approve/reject endpoints should be curator override ONLY
+5. ❌ Missing scope-based ownership (`authors:update_own`, `authors:delete_own`)
+6. ❌ Missing direct publish path (`authors:publish_direct`)
+7. ❌ Still using role-based logic in some places
+
+**Correct Architecture - Two Approval Paths:**
+
+```
+PATH 1: DEMOCRATIC JURY VOTING (Primary)
+======================================
+User submits → PENDING → Jury members vote → Accumulate until vote_score >= 5 → AUTO-PUBLISH
+                    ↓
+               Contributors (+1 vote)
+               Trusted (+5 votes)
+               Anyone with jury:vote or jury:vote_weighted
+
+PATH 2: CURATOR OVERRIDE (Rare)
+================================
+User submits → PENDING → Curator with jury:override → INSTANT approve/reject
+                                                     (Bypasses voting entirely)
+
+PATH 3: TRUSTED BYPASS (Auto-approve)
+======================================
+Trusted user submits with authors:publish_direct → APPROVED immediately (no queue)
+```
+
+**Scope-Based Endpoints Architecture:**
+
+| Scope | Endpoints Required | Current Status |
+|-------|-------------------|----------------|
+| `authors:draft` | POST /authors (→ PENDING) | ✅ Exists |
+| `authors:update_own` | PATCH /authors/{id} (owner check) | ⚠️ Partial (needs own-author validation) |
+| `authors:delete_own` | DELETE /authors/{id} (owner check) | ❌ Missing (currently needs content:takedown) |
+| `authors:edit_public_meta` | PATCH /authors/{id} (ANY author) | ✅ Exists |
+| `authors:publish_direct` | POST /authors (→ APPROVED) | ❌ Missing (needs detection logic) |
+| `jury:view` | GET /jury/authors (pending queue) | ❌ Missing |
+| `jury:vote` | POST /jury/authors/{id}/vote (+1) | ❌ Missing |
+| `jury:vote_weighted` | POST /jury/authors/{id}/vote (+5) | ❌ Missing |
+| `jury:override` | POST /authors/{id}/approve, /reject | ✅ Exists (but no voting bypass) |
+| `content:takedown` | DELETE /authors/{id} (hard removal) | ✅ Exists |
+
+**Required New Database Models:**
+
+```python
+class JuryVote(Base):
+    """Democratic voting on pending content."""
+    __tablename__ = "jury_votes"
+    
+    # Composite PK: one vote per user per entity
+    user_id = Column(UUID, primary_key=True)
+    entity_type = Column(String(50), primary_key=True)  # 'author', 'book', 'collection'
+    entity_id = Column(Integer, primary_key=True)
+    
+    # Vote value (+1 for contributor, +5 for trusted)
+    vote_value = Column(Integer, nullable=False)  # Store 1 or 5
+    
+    # When vote was cast
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Check constraint
+    __table_args__ = (
+        CheckConstraint('vote_value IN (1, 5)', name='valid_vote_values'),
+    )
+
+# Add to Author model:
+class Author(Base):
+    # ... existing fields ...
+    vote_score = Column(Integer, default=0, nullable=False)  # Accumulated jury votes
+```
+
+**Endpoint Refactoring Plan:**
+
+1. **Fix Ownership Endpoints**:
+   - `PATCH /authors/{id}`: Check `authors:update_own` AND `is_owner` OR `authors:edit_public_meta`
+   - `DELETE /authors/{id}`: NEW endpoint for owner with `authors:delete_own` scope
+   - Keep existing `DELETE /authors/{id}` for `content:takedown` (curator hard removal)
+
+2. **Add Jury Queue Endpoints**:
+   - `GET /jury/authors`: List PENDING authors (requires `jury:view`)
+   - `GET /jury/authors/{id}`: Detail view with vote status
+   - `POST /jury/authors/{id}/vote`: Cast vote (auto-detect weight from user scopes)
+
+3. **Add Direct Publish Logic**:
+   - `POST /authors`: Check if user has `authors:publish_direct` → set status=APPROVED
+
+4. **Fix Curator Override**:
+   - `POST /authors/{id}/approve`: Only for `jury:override` (curator instant approval)
+   - `POST /authors/{id}/reject`: Only for `jury:override` (curator instant rejection)
+
+**Testing**: Current 17 tests are INCOMPLETE - need 30+ tests for full jury system
+
+### Phase 2.3: Complete Author System Rewrite ⏳ IN PROGRESS
+
+**Status**: Needs complete refactoring to implement jury voting system
+
+**Required Steps:**
+
+#### Step 1: Database Schema Updates
+- [ ] Add `JuryVote` model with composite PK (user_id, entity_type, entity_id)
+- [ ] Add `vote_score` column to Author model (default 0)
+- [ ] Create migration: `alembic revision -m "add_jury_voting_system"`
+- [ ] Apply migration: `alembic upgrade head`
+
+#### Step 2: Jury Helper Functions
+- [ ] Create `helpers/jury.py`:
+  - `calculate_vote_weight(user_scopes) -> int` (1 if jury:vote, 5 if jury:vote_weighted)
+  - `cast_jury_vote(db, user_id, entity_type, entity_id, vote_value) -> bool` (returns True if auto-published)
+  - `get_vote_status(db, entity_type, entity_id) -> dict` (current score, threshold, voters list)
+  - `auto_publish_if_threshold_met(db, entity_type, entity_id) -> bool` (check score >= 5)
+
+#### Step 3: Author Router - Public Endpoints (No Auth)
+- [x] `GET /authors` - List public approved authors
+  - Filter: `status=APPROVED`, `is_public=True`, `is_deleted=False`
+  - Pagination, search, sorting
+  - Return: `AuthorListResponse`
+
+- [x] `GET /authors/{id}` - Get author detail
+  - Check: `is_deleted=False`, `status=APPROVED`, `is_public=True`
+  - Returns 404 if not found
+  - Return: `AuthorDetail`
+
+- [x] `GET /authors/{id}/books` - Books by author
+  - Return only approved public books
+  - Return: `List[dict]`
+
+#### Step 4: Author Router - Content Submission Endpoints
+- [ ] `POST /authors` - Create author (with publish logic)
+  - Requires: `authors:draft` scope (all users have this)
+  - **Check scopes**:
+    - If user has `authors:publish_direct` (trusted+): Set `status=APPROVED`, `is_public=True`
+    - Otherwise: Set `status=PENDING`, `is_public=False`, `vote_score=0`
+  - Book validation (must be approved)
   - Record edit history: action=create
-  - Invalidate cache
-  - Return: `AuthorRead`
+  - Return: `AuthorDetail` (with status indicating if published or pending)
 
-- [ ] `PATCH /authors/{id}` - Update author (with version check)
-  - Requires: owner OR `content:edit_any` scope
-  - Query param: `expected_version` (required)
+#### Step 5: Author Router - Ownership-Based Endpoints
+- [ ] `PATCH /authors/{id}` - Update author (scope-based permissions)
+  - **Permission Matrix**:
+    - Owner with `authors:update_own`: Can update OWN author (any status)
+    - Non-owner with `authors:edit_public_meta` (contributor+): Can update ANY APPROVED author (wiki mode)
+    - Admin: Can update any author
   - Check version match (409 if mismatch)
   - Snapshot old_data before changes
   - Apply partial updates from `AuthorUpdate` schema
   - Increment version, update `last_edited_by`, `last_edited_at`
   - Record edit history: action=update with old/new data
-  - Invalidate cache
-  - Return: `AuthorRead`
+  - Return: `AuthorDetail`
 
-- [ ] `DELETE /authors/{id}` - Soft delete
-  - Requires: owner OR `content:delete_any` scope
+- [ ] `DELETE /authors/{id}` - Owner soft delete
+  - **NEW ENDPOINT** for owner deletion
+  - Requires: `authors:delete_own` scope AND is_owner
+  - Only works on OWN authors (any status)
   - Set: `is_deleted=True`, `deleted_at=now()`, `is_public=False`
   - Record edit history: action=delete
-  - Invalidate cache
   - Return: 204 No Content
 
-**Curator Endpoints (Admin Prefix):**
-- [ ] `GET /admin/authors/pending` - List pending submissions
-  - Requires: `content:review` scope
-  - Filter: `status=pending`, `is_deleted=False`
-  - Order by: `created_at ASC`
-  - Pagination: limit/offset
-  - Return: `List[AuthorRead]`
+- [ ] `DELETE /authors/{id}/admin` - Hard removal (curator only)
+  - **RENAME existing DELETE endpoint**
+  - Requires: `content:takedown` scope (curator: trust >= 80, reputation >= 90%)
+  - Can delete ANY author (DMCA, illegal content, spam)
+  - Set: `is_deleted=True`, `deleted_at=now()`, `is_public=False`
+  - Record edit history: action=takedown
+  - Return: 204 No Content
 
-- [ ] `POST /admin/authors/{id}/approve` - Approve author
-  - Requires: `content:approve` scope
-  - Set: `status=approved`, `is_public=True`
-  - Call Auth Service: `adjust_trust(+10, source="upload")`
-  - Invalidate cache
-  - Return: `{"message": "...", "trust_delta": 10}`
+#### Step 6: Jury Router - Democratic Voting Endpoints
+- [ ] `GET /jury/authors` - List pending authors (jury queue)
+  - Requires: `jury:view` scope (contributor: trust >= 10)
+  - Filter: `status=PENDING`, `is_deleted=False`
+  - Show: vote_score, vote_threshold (5), time in queue
+  - Pagination, sorting by submission date
+  - Return: `PendingAuthorListResponse`
 
-- [ ] `POST /admin/authors/{id}/reject` - Reject author
-  - Requires: `content:approve` scope
-  - Query param: `reason` (required, min 10 chars)
-  - Set: `status=rejected`, `is_public=False`
-  - Call Auth Service: `adjust_trust(-5, source="upload")`
-  - Invalidate cache
-  - Return: `{"message": "...", "trust_delta": -5, "reason": "..."}`
+- [ ] `GET /jury/authors/{id}` - Pending author detail
+  - Requires: `jury:view` scope
+  - Check: `status=PENDING`
+  - Show: full author details + vote_score + who voted
+  - Return: `PendingAuthorDetail`
 
-- [ ] `POST /admin/authors/{id}/recover` - Recover soft-deleted
-  - Requires: `content:recover` scope
-  - Check: `is_deleted=True` and `deleted_at` within 24h window
-  - Set: `is_deleted=False`, `deleted_at=None`, `status=pending`, `is_public=False`
-  - Record edit history: action=recover
-  - Invalidate cache
-  - Return: `AuthorRead`
+- [ ] `POST /jury/authors/{id}/vote` - Cast jury vote
+  - Requires: `jury:vote` OR `jury:vote_weighted` scope
+  - **Auto-detect vote weight**:
+    - If user has `jury:vote_weighted` (trusted+): vote_value = 5
+    - Else if user has `jury:vote` (contributor): vote_value = 1
+  - Validate: author is PENDING, not already voted by this user
+  - Create JuryVote record
+  - Increment author.vote_score by vote_value
+  - **Auto-publish if vote_score >= 5**:
+    - Set `status=APPROVED`, `is_public=True`
+    - Call Auth Service: `adjust_trust(+10)` to submitter
+    - Record edit history: action=approved_by_jury
+  - Return: vote status (score, published: true/false)
+
+- [ ] `DELETE /jury/authors/{id}/vote` - Retract vote
+  - Requires: `jury:vote` OR `jury:vote_weighted`
+  - Validate: user has voted
+  - Delete JuryVote record
+  - Decrement author.vote_score by vote_value
+  - Return: 204 No Content
+
+#### Step 7: Curator Router - Override Endpoints (Bypass Voting)
+- [ ] `POST /authors/{id}/approve` - Curator instant approval
+  - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
+  - **Bypass jury voting entirely**
+  - Set: `status=APPROVED`, `is_public=True`
+  - Clear any existing jury votes (no longer needed)
+  - Call Auth Service: `adjust_trust(+10)` to submitter
+  - Record edit history: action=curator_approved
+  - Return: `AuthorDetail`
+
+- [ ] `POST /authors/{id}/reject` - Curator instant rejection
+  - Requires: `jury:override` scope
+  - **Bypass jury voting entirely**
+  - Query param: `reason` (required)
+  - Set: `status=REJECTED`, `is_public=False`
+  - Clear any existing jury votes
+  - Call Auth Service: `adjust_trust(-5)` to submitter
+  - Record edit history: action=curator_rejected with reason
+  - Return: `AuthorDetail`
+
+#### Step 8: Social Engagement Endpoints
+- [x] `POST /authors/{id}/follow` - Follow author
+  - Requires: authentication
+  - Validate: author is approved/public/not deleted
+  - Prevent duplicate follows (409)
+  - Create `AuthorFollow` record
+  - Increment `author.follower_count`
+  - Call Auth Service: `adjust_trust(+3, max +6 per author)` to author submitter
+  - Return: success message
+
+- [x] `DELETE /authors/{id}/follow` - Unfollow author
+  - Requires: authentication
+  - Delete `AuthorFollow` record (404 if not following)
+  - Decrement `author.follower_count` safely (min 0)
+  - Return: 204 No Content
+
+#### Step 9: Testing Requirements for Complete System
+
+**Current Status**: 55 tests passing, but only cover basic CRUD (no jury system)
+
+**Required New Tests** (30+ additional tests):
+
+1. **Jury Voting Tests** (12 tests):
+   - [ ] Test contributor vote (+1 weight)
+   - [ ] Test trusted vote (+5 weight)
+   - [ ] Test auto-publish at threshold (score >= 5)
+   - [ ] Test duplicate vote prevention (409)
+   - [ ] Test vote retraction
+   - [ ] Test curator override clears votes
+   - [ ] Test voting on non-PENDING author (400)
+   - [ ] Test voting without jury:view scope (403)
+   - [ ] Test vote weight calculation from scopes
+   - [ ] Test jury queue filtering (only PENDING)
+   - [ ] Test vote status display (who voted, current score)
+   - [ ] Test trust adjustment after jury approval
+
+2. **Ownership Permission Tests** (8 tests):
+   - [ ] Test owner can update own PENDING author
+   - [ ] Test owner can update own APPROVED author (with authors:update_own)
+   - [ ] Test owner can delete own author (with authors:delete_own)
+   - [ ] Test non-owner cannot update without authors:edit_public_meta
+   - [ ] Test non-owner with authors:edit_public_meta can edit ANY approved
+   - [ ] Test owner without authors:delete_own cannot delete
+   - [ ] Test authors:update_own only works on owned authors
+   - [ ] Test permission matrix (owner + scope combinations)
+
+3. **Direct Publish Tests** (4 tests):
+   - [ ] Test trusted user with authors:publish_direct → APPROVED immediately
+   - [ ] Test regular user without authors:publish_direct → PENDING
+   - [ ] Test direct publish bypasses jury queue
+   - [ ] Test direct publish triggers trust adjustment (+10)
+
+4. **Curator Override Tests** (4 tests):
+   - [ ] Test curator can approve without votes
+   - [ ] Test curator approval clears existing votes
+   - [ ] Test curator rejection with reason
+   - [ ] Test curator actions recorded in edit history
+
+5. **Edge Cases** (5 tests):
+   - [ ] Test voting after curator already approved (400)
+   - [ ] Test curator override after jury approved (allowed)
+   - [ ] Test content:takedown vs authors:delete_own distinction
+   - [ ] Test wiki editing on PENDING vs APPROVED
+   - [ ] Test follow/unfollow on PENDING authors (should fail)
+
+**Total Required**: **55 existing + 33 new = 88 tests**
+
+### Phase 2 Completion & Lessons Learned (Original Implementation)
+
+**Test Results (Partial Implementation)**:
+- ⚠️ **55 tests passing** - But missing jury system tests!
+- ✅ All basic CRUD endpoints registered in OpenAPI
+- ✅ API responding correctly (HTTP 200 OK)
+- ✅ No Python compilation errors
+
+**Note**: These 55 tests only validate the basic CRUD functionality, NOT the jury voting system that is the core requirement.
+
+**Critical Bugs Fixed:**
+1. **Missing imports** - Added `datetime`, `timezone`, `serialize_entity`
+2. **Type handling** - Fixed `total` nullable issue with `or 0`
+3. **Edit history calls** - All record functions needed `serialize_entity()` for data params
+4. **Version parameters** - Added missing `new_version` and `old_version` params
+5. **Books assignment** - Converted Sequence to list: `author.books = list(books)`
+6. **Version conflict** - Added missing `entity_type` and `entity_id` params
+7. **SQLAlchemy 2.0 async** - `db.delete()` IS a coroutine, must use `await db.delete()`
+
+**Key Technical Learnings:**
+
+1. **SQLAlchemy 2.0 Async Patterns:**
+   - `AsyncSession.delete()` is a coroutine function (verified with `inspect.iscoroutinefunction`)
+   - MUST use `await db.delete(obj)`, not just `db.delete(obj)`
+   - All database operations need await: `execute`, `commit`, `flush`, `refresh`, `delete`
+
+2. **Testing Strategy:**
+   - Use real PostgreSQL database, not SQLite in-memory
+   - SQLite doesn't support all PostgreSQL features (GIN indexes, ARRAY types, etc.)
+   - Transaction rollback pattern keeps tests isolated: `async with session.begin()`
+   - Unit tests for business logic, integration tests for endpoints (both valuable)
+
+3. **Edit History Implementation:**
+   - Always serialize SQLAlchemy models before passing to record functions
+   - `serialize_entity(obj)` converts UUID/datetime to JSON-serializable strings
+   - Record functions need both old and new versions for UPDATE/APPROVE/REJECT
+   - Version conflict check needs entity context for better error messages
+
+4. **Type Safety:**
+   - SQLAlchemy relationships return Sequence, need list conversion for assignment
+   - Nullable scalar results need default handling: `await db.scalar(query) or 0`
+   - FastAPI Query params with regex are deprecated, use `pattern` instead
+
+5. **Error Handling Best Practices:**
+   - Auth Service calls should fail gracefully (log warning, don't break workflow)
+   - Version conflicts return 409 with structured error (current/requested versions)
+   - Permission checks return 403 with clear message (owner vs admin distinction)
+   - Trust score adjustments are fire-and-forget (don't block approval workflow)
+
+6. **Performance Considerations:**
+   - Eager load relationships with `selectinload()` to avoid N+1 queries
+   - Use `db.flush()` before recording history to get entity.id
+   - Follower count updates are direct increments (no complex queries)
+   - Soft delete with timestamps preserves data while hiding from public
+
+**Development Workflow Insights:**
+- Start with models/schemas, then helpers, then endpoints (bottom-up)
+- Write tests alongside implementation, not after (catches issues early)
+- Use CLI Python REPL for quick verification of API behaviors
+- Multi-file edits with context are more efficient than sequential edits
+- Real database testing catches async/type issues that mocks miss
+
+**Time Estimate vs Actual:**
+- Estimated: 5-6 days
+- Actual: ~3 days (with bug fixes and comprehensive testing)
+- Efficiency gained from: existing auth patterns, clear requirements, good test coverage
+  - Record edit history: action=reject with reason
+  - Return: `AuthorDetail`
 
 **Social Endpoints:**
-- [ ] `POST /authors/{id}/follow` - Follow author
-  - Requires: `social:follow` scope
-  - Check: author is public and not deleted
+- [x] `POST /authors/{id}/follow` - Follow author
+  - Requires: authenticated user
+  - Check: author is approved/public/not deleted
   - Check: not already following (prevent duplicate)
   - Create `AuthorFollow` record
   - Increment `author.follower_count`
-  - Call Auth Service: `adjust_trust(submitter, +3, source="social")`
-    - Note: Max +6 cap needs external tracking (future enhancement)
-  - Return: `{"message": "...", "follower_count": N}`
+  - Call Auth Service: `adjust_trust(submitter, +3)` (max +6 per author)
+  - Return: `{"message": "Successfully followed author"}`
 
-- [ ] `DELETE /authors/{id}/follow` - Unfollow author
+- [x] `DELETE /authors/{id}/follow` - Unfollow author
   - Requires: authenticated user
   - Delete `AuthorFollow` record
   - Decrement `author.follower_count`
   - Return: 204 No Content
-
-- [ ] `GET /authors/{id}/followers` - List followers
-  - Return: `List[UUID]` of follower user IDs
-  - Pagination: limit/offset
 
 ### Cache Helpers
 - [ ] Update `cache.py` with new functions:
@@ -504,31 +825,342 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 - [ ] Test cache invalidation on mutations
 - [ ] Test edit history records all changes
 
+# SCOPES and ROLES
+
+```python
+SCOPES = {
+    # --- LEVEL 1: CONSUMER ---
+    "books:read": "Read published books",
+    "reviews:create": "Post reviews on published books",
+    # --- LEVEL 2: DRAFTING (Standard User) ---
+    "books:draft": "Submit a book to the Pending Queue (Not public)",
+    "books:update_own": "Edit metadata/files of own pending/published books",
+    "books:delete_own": "Soft-delete own uploads",
+    "authors:draft": "Submit author profile to Pending Queue",
+    "authors:update_own": "Edit own author profiles",
+    "authors:delete_own": "Delete own author profiles",
+    "collections:create": "Create personal collections",
+    "collections:update_own": "Edit own collections",
+    "collections:delete_own": "Delete own collections",
+    # --- LEVEL 3: WIKI & JURY (Contributor) ---
+    "books:edit_public_meta": "Edit title/tags/desc of ANY book (Wiki Mode)",
+    "authors:edit_public_meta": "Edit any author metadata (Wiki Mode)",
+    "jury:view": "Access the Review Queue",
+    "jury:vote": "Cast weighted vote on pending content (+1 for contributor)",
+    "reports:create": "Flag content for removal",
+    # --- LEVEL 4: TRUSTED PRIVILEGES ---
+    "books:publish_direct": "Uploads go LIVE immediately (Bypass Jury)",
+    "books:replace_file": "Replace the PDF/EPUB file of ANY book (Version Control)",
+    "authors:publish_direct": "Author profiles go live immediately",
+    "jury:vote_weighted": "Cast +5 weighted vote (Trusted users)",
+    # --- LEVEL 5: CURATION & ENFORCEMENT ---
+    "jury:override": "Instant Approve/Reject power (Curator override)",
+    "collections:manage_any": "Curate any collection",
+    "users:ban": "Ban malicious users",
+    "content:takedown": "Hard removal (DMCA/Illegal content)",
+    # --- ADMIN ---
+    "system:access": "Access internal dashboards",
+}
+
+# Role to scopes mapping
+ROLE_SCOPES = {
+    # The "Blacklisted" - Read only, no interaction.
+    "blacklisted": ["books:read"],
+    # The "Newbie" - Can submit drafts to pending queue.
+    # Default role for new users (Trust Score starts at 0).
+    "user": [
+        "books:read",
+        "reviews:create",
+        "books:draft",
+        "books:update_own",
+        "books:delete_own",
+        "authors:draft",
+        "authors:update_own",
+        "authors:delete_own",
+        "collections:create",
+        "collections:update_own",
+        "collections:delete_own",
+        "reports:create",
+    ],
+    # The "Citizen" - Jury duty + wiki editing power.
+    # Requirement: Trust Score >= 10.
+    "contributor": [
+        # Inherits User
+        "books:read",
+        "reviews:create",
+        "books:draft",
+        "books:update_own",
+        "books:delete_own",
+        "authors:draft",
+        "authors:update_own",
+        "authors:delete_own",
+        "collections:create",
+        "collections:update_own",
+        "collections:delete_own",
+        "reports:create",
+        # New Powers
+        "books:edit_public_meta",  # Wiki editing
+        "authors:edit_public_meta",  # Wiki editing for authors
+        "jury:view",  # Access review queue
+        "jury:vote",  # Vote weight = +1
+    ],
+    # The "Veteran" - Trusted fast-track.
+    # Requirement: Trust Score >= 50 AND Reputation >= 80%.
+    "trusted": [
+        # Inherits Contributor
+        "books:read",
+        "reviews:create",
+        "books:draft",
+        "books:update_own",
+        "books:delete_own",
+        "authors:draft",
+        "authors:update_own",
+        "authors:delete_own",
+        "collections:create",
+        "collections:update_own",
+        "collections:delete_own",
+        "reports:create",
+        "books:edit_public_meta",
+        "authors:edit_public_meta",
+        "jury:view",
+        "jury:vote",
+        # New Powers
+        "books:publish_direct",  # Bypass queue
+        "books:replace_file",  # Fix broken files
+        "authors:publish_direct",  # Authors bypass queue
+        "jury:vote_weighted",  # Vote weight = +5
+    ],
+    # The "Sheriff" - Instant justice powers.
+    # Requirement: Trust Score >= 80 AND Reputation >= 90%.
+    "curator": [
+        # Inherits Trusted
+        "books:read",
+        "reviews:create",
+        "books:draft",
+        "books:update_own",
+        "books:delete_own",
+        "authors:draft",
+        "authors:update_own",
+        "authors:delete_own",
+        "collections:create",
+        "collections:update_own",
+        "collections:delete_own",
+        "reports:create",
+        "books:edit_public_meta",
+        "authors:edit_public_meta",
+        "jury:view",
+        "jury:vote",
+        "books:publish_direct",
+        "books:replace_file",
+        "authors:publish_direct",
+        "jury:vote_weighted",
+        # New Powers
+        "jury:override",  # Instant approve/reject
+        "collections:manage_any",  # Curate featured collections
+        "users:ban",  # Ban trolls
+        "content:takedown",  # DMCA/illegal removal
+    ],
+    # The "Owner" - Full system access.
+    "admin": list(SCOPES.keys()),  # All scopes
+}
+```
+
 ---
 
-## Phase 3: Books & Reviews Workflow (5-6 days) ⏳ NOT STARTED
+## Phase 3: Books & Reviews Workflow (7-8 days) ⏳ BLOCKED - Awaiting Phase 2 Completion
 
-### Book Router Refactor
-- [ ] Backup old `routers/book.py` as `book.py.old`
-- [ ] Refactor `routers/book.py` with workflow
+**Dependencies**: Phase 2 jury voting system must be complete first (reusable patterns)
 
-**Public Endpoints(rate limit with ip):**
-- [ ] `GET /books` - List public books
-  - Keep existing cursor pagination and similarity search
-  - Chang add a tags parameter to filtering using tags, remove any genre related logic.
-  - Filter: `is_public=True`, `is_deleted=False`, `status=approved`
-  - Return: `PaginatedBooks`
+**Learning from Phase 2:** 
+- Jury voting system is reusable (JuryVote table works for authors, books, collections)
+- Scope-based authorization requires careful permission matrix design
+- Direct publish logic (`books:publish_direct`) needs early detection
+- Owner vs wiki-editor permissions need clear separation
 
-- [ ] `GET /books/{id}` - Book detail
-  - Check: `is_deleted=False`
-  - If not public: check ownership or curator scope
-  - Eager load: authors, reviews
-  - Return: `BookDetailRead`
+**Estimated Time Breakdown:**
+- Books jury system (reuse Phase 2): 2.5 days
+- Reviews with voting: 2 days
+- Testing and bug fixes: 2.5 days
+- **Total: 7 days**
+
+### Phase 3.1: Book Workflow Implementation (2.5 days)
+
+**Critical**: Use EXACT same architecture as authors - jury voting, curator override, direct publish
+
+**Step 1: Reuse Jury System from Phase 2**
+- [ ] `vote_score` column already in Book model
+- [ ] `JuryVote` table supports entity_type='book'
+- [ ] Reuse `helpers/jury.py` functions (already entity-agnostic)
+- [ ] Import all required dependencies (datetime, serialize_entity, auth deps)
+
+**Step 2: Public Endpoints (No Auth)**
+- [ ] `GET /books` - List approved public books
+  - Filter: `status=APPROVED`, `is_public=True`, `is_deleted=False`
+  - Pagination: page/per_page (similar to authors)
+  - Search: full-text search on title/description (use `search_tsv`)
+  - Filters: tags (ARRAY contains), published_year range, author_id
+  - Sorting: title, published_year, created_at, subscriber_count
+  - Return: `BookListResponse` with items, total, page info
+  - **Key Pattern:** Same as authors list, use `or 0` for total
+
+- [ ] `GET /books/{id}` - Get book detail
+  - Check: `is_deleted=False`, `status=APPROVED`, `is_public=True`
+  - Eager load: authors with `selectinload(Book.authors)`
+  - Return: `BookDetail` with all fields
+  - **Key Pattern:** 404 if not found or not public
 
 - [ ] `GET /books/{id}/reviews` - Reviews for book
-  - Filter: `is_deleted=False`
-  - Include helpfulness counts
+  - Filter: `is_deleted=False`, book_id matches
+  - Order by: helpful_count DESC (show most helpful first)
   - Return: `List[ReviewRead]`
+  - **Key Pattern:** Return empty list if book not found (not 404)
+
+**Step 3: Authenticated Endpoints**
+- [ ] `POST /books` - Create book (PENDING status)
+  - Requires: `books:draft` scope (all users have this)
+  - Validate: author_ids (all must be approved)
+  - Create book: `status=PENDING`, `is_public=False`, `version=1`
+  - Associate authors: `book.authors = list(authors)` (convert Sequence!)
+  - Flush to get book.id: `await db.flush()`
+  - Record edit history: `record_create(serialize_entity(book))`
+  - Return: `BookDetail`
+  - **Key Patterns:** Book validation, list conversion, flush before history
+
+- [ ] `PATCH /books/{id}` - Update book
+  - Permission: owner (if PENDING) OR `books:edit_public_meta` scope (contributor+)
+  - Version check: `check_version_conflict(book.version, data.version, "book", book_id)`
+  - Snapshot: `old_data = serialize_entity(book)` BEFORE changes
+  - Apply updates: title, description, published_year, cover_key, file_key, tags, authors
+  - Author update: validate and convert `book.authors = list(authors)`
+  - Increment: `book.version += 1`, update `last_edited_by/at`
+  - Record history: `record_update(old_data, serialize_entity(book), new_version, old_version)`
+  - Return: `BookDetail`
+  - **Key Patterns:** Version check first, serialize before AND after, list conversion
+
+- [ ] `DELETE /books/{id}` - Soft delete
+  - Requires: `content:takedown` scope (curator/admin only)
+  - Check: not already deleted
+  - Update: `is_deleted=True`, `deleted_at=now()`, `is_public=False`, `version += 1`
+  - Record history: `record_delete(serialize_entity(old_data), version-1)`
+  - Return: 204 No Content
+  - **Key Pattern:** Soft delete pattern, save old data first
+
+**Step 4: Curator/Admin Endpoints**
+- [ ] `POST /books/{id}/approve` - Approve book (+20 trust!)
+  - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
+  - Validate: not already approved
+  - Update: `status=APPROVED`, `is_public=True`, `version += 1`
+  - Record history: `record_approval(old, new, new_version, old_version)`
+  - Call Auth Service: `adjust_trust_for_approval(+20, is_book=True)`
+  - Return: `BookDetail`
+  - **Key Pattern:** Trust adjustment after commit, fail gracefully
+
+- [ ] `POST /books/{id}/reject` - Reject book (-10 trust)
+  - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
+  - Query param: `reason` (required)
+  - Update: `status=REJECTED`, `is_public=False`, `version += 1`
+  - Record history: `record_rejection(old, new, new_version, old_version)`
+  - Call Auth Service: `adjust_trust_for_rejection(-10, reason, is_book=True)`
+  - Return: `BookDetail`
+  - **Key Pattern:** Doubled penalty for books
+
+**Step 5: Social Endpoints**
+- [ ] `POST /books/{id}/subscribe` - Subscribe to book
+  - Requires: authentication
+  - Validate: book is approved/public/not deleted
+  - Prevent duplicates: check existing `BookSubscription`
+  - Create subscription record
+  - Increment: `book.subscriber_count`
+  - Call Auth Service: `adjust_trust_for_social_bonus(+3, max +6)`
+  - Return: success message
+  - **Key Pattern:** Same as author follow
+
+- [ ] `DELETE /books/{id}/subscribe` - Unsubscribe
+  - Find and delete subscription (404 if not subscribed)
+  - Decrement: `book.subscriber_count = max(0, count - 1)`
+  - Return: 204 No Content
+  - **Key Pattern:** Safe decrement, no negative counts
+
+### Phase 3.2: Review System Implementation (1.5 days)
+
+**Step 1: Review CRUD**
+- [ ] `POST /books/{id}/reviews` - Create review
+  - Requires: authentication
+  - Extract: `user_id` from JWT (no more reviewer_name!)
+  - Validate: book exists and is approved
+  - Check: user hasn't reviewed this book (unique constraint)
+  - Create review: with user_id, rating (1-5), comment
+  - Set counters: `helpful_count=0`, `unhelpful_count=0`, `trust_awarded=0`
+  - Return: `ReviewRead`
+  - **Key Pattern:** Unique constraint enforced at DB level
+
+- [ ] `PATCH /reviews/{id}` - Update own review
+  - Requires: review owner (check user_id matches)
+  - Allow updates: rating, comment only
+  - Return: `ReviewRead`
+  - **Key Pattern:** Simple ownership check, no version needed
+
+- [ ] `DELETE /reviews/{id}` - Soft delete review
+  - Requires: review owner OR `content:delete_any`
+  - Update: `is_deleted=True`, `deleted_at=now()`
+  - Return: 204 No Content
+  - **Key Pattern:** Soft delete, preserve helpfulness data
+
+**Step 2: Review Voting System**
+- [ ] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
+  - Requires: `trust_score >= 50` (trusted+ users only)
+  - Body: `{"vote": "helpful" | "unhelpful"}`
+  - Check: voter hasn't voted on this review (or allow vote change)
+  - Check: review trust_awarded hasn't reached cap (±5)
+  - Create/Update: `ReviewVote` record with user_id, vote type
+  - Update counters: increment `helpful_count` or `unhelpful_count`
+  - Calculate delta: +1 for helpful, -1 for unhelpful
+  - Update: `review.trust_awarded += delta` (capped at ±5)
+  - Call Auth Service: adjust reviewer's trust by delta
+  - Return: vote details with new counts
+  - **Key Pattern:** Trust cap enforcement, atomic counter updates
+
+- [ ] `DELETE /reviews/{id}/vote` - Remove vote
+  - Find vote record, reverse the counter change
+  - Reverse trust adjustment (if possible)
+  - Delete vote record
+  - Return: 204 No Content
+  - **Key Pattern:** Idempotent operation
+
+### Phase 3.3: Testing (1.5 days)
+
+**Book Workflow Tests:**
+- [ ] Test book creation with authors (PENDING status)
+- [ ] Test book approval (+20 trust, status change)
+- [ ] Test book rejection (-10 trust, doubled penalty)
+- [ ] Test book update with version check (conflict detection)
+- [ ] Test book update permission (owner vs admin)
+- [ ] Test book soft delete
+- [ ] Test subscribe/unsubscribe (counter management)
+- [ ] Test author association (list conversion)
+
+**Review System Tests:**
+- [ ] Test review creation (user_id extraction from JWT)
+- [ ] Test review unique constraint (one per user per book)
+- [ ] Test review update (owner only)
+- [ ] Test review soft delete
+- [ ] Test vote helpful (counter increment, trust +1)
+- [ ] Test vote unhelpful (counter increment, trust -1)
+- [ ] Test vote requires trust >= 50
+- [ ] Test vote trust cap (max ±5 per review)
+- [ ] Test vote duplicate handling
+
+**Target:** 75+ tests passing (55 current + 20 new)
+
+### Key Implementation Reminders (From Phase 2)
+1. Always `await db.delete()` - it's a coroutine in SQLAlchemy 2.0
+2. Use `serialize_entity()` for ALL edit history calls
+3. Convert Sequence to list: `book.authors = list(authors)`
+4. Check version BEFORE making changes
+5. Use `await db.flush()` to get ID before history recording
+6. Handle nullable scalars: `await db.scalar(query) or 0`
+7. Test with real PostgreSQL, not SQLite
+8. Trust adjustments are fire-and-forget (log errors, don't block)
 
 **Authenticated Endpoints:**
 - [ ] `POST /books` - Create book (pending)
