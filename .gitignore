@@ -3,3 +3,7 @@ alembic.ini
 .env
 .devcontainer/
 devcontainer_test.txt
+DevNotes/
+__pycache__/
+.pytest_cache/
+.vscode/

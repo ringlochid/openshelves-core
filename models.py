@@ -1,18 +1,28 @@
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from database import Base
 from sqlalchemy import (
+    DateTime,
     Computed,
     Table,
+    Enum,
     Column,
     String,
     Text,
+    Index,
     Integer,
     ForeignKey,
     CheckConstraint,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import datetime
+from enum import Enum as PyEnum
 
+class UploadStatus(str, PyEnum):
+    is_pending = "pending"
+    is_compelet = "completed"
+    is_revoked = "revoked"
 
 class Author(Base):
     __tablename__ = "authors"
@@ -20,6 +30,7 @@ class Author(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(30), nullable=False)
     email: Mapped[str | None] = mapped_column(String(50))
+    avatar_key : Mapped[str | None] = mapped_column()
 
     # many-to-many: authors → books
     books: Mapped[list["Book"]] = relationship(
@@ -44,6 +55,8 @@ class Book(Base):
     book_isbn: Mapped[str | None] = mapped_column(String(14), index=True)
     genre_name: Mapped[str | None] = mapped_column(String(127), index=True)
     description: Mapped[str | None] = mapped_column(Text)
+    cover_key : Mapped[str | None] = mapped_column()
+    pdf_key : Mapped[str | None] = mapped_column()
 
     reviews: Mapped[list["Review"]] = relationship(
         "Review", back_populates="book", cascade="all, delete-orphan"
@@ -73,6 +86,26 @@ class Book(Base):
         back_populates="books",
     )
 
+class PendingUpload(Base):
+    __tablename__ = "pending_uploads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    s3_key: Mapped[str] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP + INTERVAL '5 minutes'")
+    )
+    status: Mapped[UploadStatus] = mapped_column(
+        Enum(UploadStatus, name="upload_status", native_enum=True),
+        nullable=False,
+        server_default=text("'pending'")
+    )
+
+    __table_args__ = (
+        Index("ix_pending_user_status", "user_id", "status"),
+    )
 
 class Review(Base):
     __tablename__ = "reviews"
