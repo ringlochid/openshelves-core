@@ -131,15 +131,6 @@ class BookSearchParams(BaseModel):
 # Pagination Responses
 # ========================================
 
-class PaginatedBooks(BaseModel):
-    """Paginated list of books."""
-    items: list[BookListRead]
-    total: int
-    page: int
-    per_page: int
-    pages: int
-
-
 class PaginatedBooksCursor(BaseModel):
     """Cursor-based pagination for infinite scroll."""
     items: list[BookListRead]

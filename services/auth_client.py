@@ -301,8 +301,8 @@ async def adjust_trust_for_social_bonus(
     #     user_id=user_id,
     #     delta=3,
     #     reason=reason,
-        metadata=metadata,
-    )
+    #     metadata=metadata,
+    # )
 
 
 async def validate_user_exists(user_id: UUID) -> bool:
