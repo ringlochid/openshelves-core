@@ -1246,9 +1246,9 @@ ROLE_SCOPES = {
 
 ---
 
-## Phase 3: Books & Reviews Workflow (7-8 days) ⏳ BLOCKED - Awaiting Phase 2 Completion
+## Phase 3: Books & Reviews Workflow (7-8 days) ✅ IMPLEMENTATION COMPLETE - Testing Pending
 
-**Dependencies**: Phase 2 jury voting system must be complete first (reusable patterns)
+**Dependencies**: Phase 2 jury voting system complete ✅ (reusable patterns applied)
 
 **Learning from Phase 2:** 
 - Jury voting system is reusable (JuryVote table works for authors, books, collections)
@@ -1275,14 +1275,14 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 
 **Critical**: Use EXACT same architecture as authors - jury voting, curator override, direct publish
 
-**Step 1: Reuse Jury System from Phase 2**
-- [ ] `vote_score` column already in Book model
-- [ ] `JuryVote` table supports entity_type='book'
-- [ ] Reuse `helpers/jury.py` functions (already entity-agnostic)
-- [ ] Import all required dependencies (datetime, serialize_entity, auth deps)
+**Step 1: Reuse Jury System from Phase 2** ✅ COMPLETED
+- [x] `vote_score` column already in Book model
+- [x] `JuryVote` table supports entity_type='book'
+- [x] Reuse `helpers/jury.py` functions (already entity-agnostic)
+- [x] Import all required dependencies (datetime, serialize_entity, auth deps)
 
-**Step 2: Public Endpoints (No Auth)**
-- [ ] `GET /books` - List approved public books with advanced search
+**Step 2: Public Endpoints (No Auth)** ✅ COMPLETED
+- [x] `GET /books` - List approved public books with advanced search
   - Filter: `status=APPROVED`, `is_public=True`, `is_deleted=False`
   - **Search Options:**
     - Full-text search: `q` parameter uses PostgreSQL `search_tsv` with ranking
@@ -1307,20 +1307,20 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
     - Encode cursor with sort field values for keyset pagination
     - Return one extra item to detect `has_next` page
 
-- [ ] `GET /books/{id}` - Get book detail
+- [x] `GET /books/{id}` - Get book detail
   - Check: `is_deleted=False`, `status=APPROVED`, `is_public=True`
   - Eager load: authors with `selectinload(Book.authors)`
   - Return: `BookDetail` with all fields
   - **Key Pattern:** 404 if not found or not public
 
-- [ ] `GET /books/{id}/reviews` - Reviews for book
+- [x] `GET /books/{id}/reviews` - Reviews for book
   - Filter: `is_deleted=False`, book_id matches
   - Order by: helpful_count DESC (show most helpful first)
   - Return: `List[ReviewRead]`
   - **Key Pattern:** Return empty list if book not found (not 404)
 
-**Step 3: Authenticated Endpoints**
-- [ ] `POST /books` - Create book (PENDING status)
+**Step 3: Authenticated Endpoints** ✅ COMPLETED
+- [x] `POST /books` - Create book (PENDING status)
   - Requires: `books:draft` scope (all users have this)
   - Validate: author_ids (all must be approved)
   - Create book: `status=PENDING`, `is_public=False`, `version=1`
@@ -1349,7 +1349,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: 204 No Content
   - **Key Pattern:** Soft delete pattern, save old data first
 
-- [ ] `POST /books/{id}/rollback` - Rollback to previous version
+- [x] `POST /books/{id}/rollback` - Rollback to previous version
   - Requires: owner (if PENDING) OR `books:edit_public_meta` scope (contributor+)
   - Body: `{"target_version": int}`
   - Query edit history: find record with matching version
@@ -1363,7 +1363,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Pattern:** OLD ∪ NEW author IDs for cache, serialize before/after, list conversion
 
-- [ ] `POST /books/{id}/recover` - Recover soft-deleted book (curator only)
+- [x] `POST /books/{id}/recover` - Recover soft-deleted book (curator only)
   - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
   - Check: book is actually deleted
   - Check: deleted within 24h window (`deleted_at >= now() - 24h`)
@@ -1374,8 +1374,8 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Pattern:** 24h grace period, restore is_public based on approval status
 
-**Step 4: Curator/Admin Endpoints**
-- [ ] `POST /books/{id}/approve` - Approve book (+20 trust!)
+**Step 4: Curator/Admin Endpoints** ✅ COMPLETED
+- [x] `POST /books/{id}/approve` - Approve book (+20 trust!)
   - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
   - Validate: not already approved
   - Update: `status=APPROVED`, `is_public=True`, `version += 1`
@@ -1384,7 +1384,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Pattern:** Trust adjustment after commit, fail gracefully
 
-- [ ] `POST /books/{id}/reject` - Reject book (-10 trust)
+- [x] `POST /books/{id}/reject` - Reject book (-10 trust)
   - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
   - Query param: `reason` (required)
   - Update: `status=REJECTED`, `is_public=False`, `version += 1`
@@ -1393,8 +1393,8 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Pattern:** Doubled penalty for books
 
-**Step 5: Social Endpoints**
-- [ ] `POST /books/{id}/subscribe` - Subscribe to book
+**Step 5: Social Endpoints** ✅ COMPLETED
+- [x] `POST /books/{id}/subscribe` - Subscribe to book
   - Requires: authentication
   - Validate: book is approved/public/not deleted
   - Prevent duplicates: check existing `BookSubscription`
@@ -1404,16 +1404,18 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: success message
   - **Key Pattern:** Same as author follow - engagement tracking only
 
-- [ ] `DELETE /books/{id}/subscribe` - Unsubscribe
+- [x] `DELETE /books/{id}/subscribe` - Unsubscribe
   - Find and delete subscription (404 if not subscribed)
   - Decrement: `book.subscriber_count = max(0, count - 1)`
   - Return: 204 No Content
   - **Key Pattern:** Safe decrement, no negative counts
 
-### Phase 3.2: Review System Implementation (1.5 days)
+### Phase 3.2: Review System Implementation (1.5 days) ✅ COMPLETED
 
-**Step 1: Review CRUD**
-- [ ] `POST /books/{id}/reviews` - Create review
+**Architecture Note:** Review endpoints are implemented inside `routers/book.py` (not separate review.py) since reviews are tightly coupled to books as sub-resources. All review routes are registered under the book router with `/books` prefix.
+
+**Step 1: Review CRUD** ✅ COMPLETED (in routers/book.py)
+- [x] `POST /books/{id}/reviews` - Create review
   - Requires: authentication
   - Extract: `user_id` from JWT (no more reviewer_name!)
   - Validate: book exists and is approved
@@ -1423,20 +1425,20 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `ReviewRead`
   - **Key Pattern:** Unique constraint enforced at DB level
 
-- [ ] `PATCH /reviews/{id}` - Update own review
+- [x] `PATCH /reviews/{id}` - Update own review
   - Requires: review owner (check user_id matches)
   - Allow updates: rating, comment only
   - Return: `ReviewRead`
   - **Key Pattern:** Simple ownership check, no version needed
 
-- [ ] `DELETE /reviews/{id}` - Soft delete review
+- [x] `DELETE /reviews/{id}` - Soft delete review
   - Requires: review owner OR `content:delete_any`
   - Update: `is_deleted=True`, `deleted_at=now()`
   - Return: 204 No Content
   - **Key Pattern:** Soft delete, preserve helpfulness data
 
-**Step 2: Review Voting System**
-- [ ] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
+**Step 2: Review Voting System** ✅ COMPLETED
+- [x] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
   - Requires: `trust_score >= 50` (trusted+ users only)
   - Body: `{"vote": "helpful" | "unhelpful"}`
   - Check: voter hasn't voted on this review (or allow vote change)
@@ -1449,16 +1451,16 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: vote details with new counts
   - **Key Pattern:** Trust cap enforcement, atomic counter updates
 
-- [ ] `DELETE /reviews/{id}/vote` - Remove vote
+- [x] `DELETE /reviews/{id}/vote` - Remove vote
   - Find vote record, reverse the counter change
   - Reverse trust adjustment (if possible)
   - Delete vote record
   - Return: 204 No Content
   - **Key Pattern:** Idempotent operation
 
-### Phase 3.3: Testing (1.5 days)
+### Phase 3.3: Testing (1.5 days) ⏳ IN PROGRESS
 
-**Book Workflow Tests:**
+**Book Workflow Tests:** ⏳ NOT STARTED
 - [ ] Test book creation with authors (PENDING status)
 - [ ] Test book approval (+20 trust, status change)
 - [ ] Test book rejection (-10 trust, doubled penalty)
