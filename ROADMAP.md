@@ -1282,14 +1282,30 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 - [ ] Import all required dependencies (datetime, serialize_entity, auth deps)
 
 **Step 2: Public Endpoints (No Auth)**
-- [ ] `GET /books` - List approved public books
+- [ ] `GET /books` - List approved public books with advanced search
   - Filter: `status=APPROVED`, `is_public=True`, `is_deleted=False`
-  - Pagination: page/per_page (similar to authors)
-  - Search: full-text search on title/description (use `search_tsv`)
-  - Filters: tags (ARRAY contains), published_year range, author_id
-  - Sorting: title, published_year, created_at, subscriber_count
-  - Return: `BookListResponse` with items, total, page info
-  - **Key Pattern:** Same as authors list, use `or 0` for total
+  - **Search Options:**
+    - Full-text search: `q` parameter uses PostgreSQL `search_tsv` with ranking
+    - Trigram similarity: Falls back to trigram on title if FTS has no results
+    - Title exact match: `title` parameter
+    - Author filter: `author_id` parameter
+    - Year range: `before` and `after` parameters for publication year
+  - **Sorting:** Multi-field sorting with `sort` array parameter
+    - `by_similarity` (desc) - FTS rank score (when `q` provided)
+    - `by_title` (asc/desc)
+    - `by_year` (asc/desc)
+    - `by_subscribers` (desc) - subscriber_count
+    - Default: id ASC as tiebreaker
+  - **Pagination:** Cursor-based (keyset pagination)
+    - `cursor` parameter for next page
+    - `limit` parameter (1-100, default 20)
+    - Returns: `{items: [], next_cursor: str | null}`
+    - Cursor encodes last item's sort values for consistent pagination
+  - **Key Patterns:** 
+    - Eager load authors with `selectinload(Book.authors)`
+    - Handle similarity scoring in subquery for proper ordering
+    - Encode cursor with sort field values for keyset pagination
+    - Return one extra item to detect `has_next` page
 
 - [ ] `GET /books/{id}` - Get book detail
   - Check: `is_deleted=False`, `status=APPROVED`, `is_public=True`
@@ -1332,6 +1348,31 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Record history: `record_delete(serialize_entity(old_data), version-1)`
   - Return: 204 No Content
   - **Key Pattern:** Soft delete pattern, save old data first
+
+- [ ] `POST /books/{id}/rollback` - Rollback to previous version
+  - Requires: owner (if PENDING) OR `books:edit_public_meta` scope (contributor+)
+  - Body: `{"target_version": int}`
+  - Query edit history: find record with matching version
+  - Check version conflict: current version must be > target
+  - Restore data: apply `new_data` from history record to book
+  - Handle missing relationships: Skip deleted authors with warning
+  - Capture OLD author IDs: Before modification for cache invalidation
+  - Update: increment version, set `last_edited_by/at`
+  - Record history: `record_update(old, new, new_version, old_version)`
+  - Invalidate cache: Union of OLD and NEW author IDs
+  - Return: `BookDetail`
+  - **Key Pattern:** OLD ∪ NEW author IDs for cache, serialize before/after, list conversion
+
+- [ ] `POST /books/{id}/recover` - Recover soft-deleted book (curator only)
+  - Requires: `jury:override` scope (curator: trust >= 80, reputation >= 90%)
+  - Check: book is actually deleted
+  - Check: deleted within 24h window (`deleted_at >= now() - 24h`)
+  - Restore: `is_deleted=False`, `deleted_at=None`, increment version
+  - Restore visibility: Set `is_public=True` if status was APPROVED, else False
+  - Record history: `record_update(old, new, new_version, old_version)` with action=RECOVER
+  - Invalidate cache: All associated author IDs
+  - Return: `BookDetail`
+  - **Key Pattern:** 24h grace period, restore is_public based on approval status
 
 **Step 4: Curator/Admin Endpoints**
 - [ ] `POST /books/{id}/approve` - Approve book (+20 trust!)
@@ -1424,8 +1465,16 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 - [ ] Test book update with version check (conflict detection)
 - [ ] Test book update permission (owner vs admin)
 - [ ] Test book soft delete
+- [ ] Test book rollback to previous version (version increment, OLD ∪ NEW author cache)
+- [ ] Test rollback with missing authors (graceful handling of deleted authors)
+- [ ] Test rollback version conflict (target >= current fails)
+- [ ] Test book recovery within 24h (curator only, restores is_public based on status)
+- [ ] Test book recovery after 24h (410 Gone error)
+- [ ] Test recovery of non-deleted book (400 error)
 - [ ] Test subscribe/unsubscribe (counter management)
 - [ ] Test author association (list conversion)
+- [ ] Test advanced search with FTS and trigram
+- [ ] Test cursor pagination consistency
 
 **Review System Tests:**
 - [ ] Test review creation (user_id extraction from JWT)
@@ -1554,6 +1603,10 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 ### Schema Updates
 - [ ] Update `schemas/book.py`
   - Add: `status`, `version`, `file_key`, `file_format`, `created_by_user_id`, `subscriber_count`
+  - Keep: `BookSortControl`, `SortField`, `SortDirection` enums for multi-field sorting
+  - Update: `PaginatedBooksCursor` for cursor-based pagination (items + next_cursor)
+  - Remove: Simple `PaginatedBooks` with page/per_page (replaced by cursor)
+  - Add: `BookRollbackRequest` schema with `target_version: int`
   - Update `BookDetailRead` to include review helpfulness
 
 - [ ] Update `schemas/review.py`
