@@ -5,19 +5,20 @@ Implements Phase 2 author management endpoints.
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_async_db
 from dependencies.auth import get_current_user, require_scope, require_role, require_min_trust
-from models import Author, Book, AuthorFollow, ContentStatus
+from models import Author, Book, AuthorFollow, ContentStatus, EditHistory, EditAction
 from schemas.author import (
     AuthorCreate,
     AuthorUpdate,
     AuthorDetail,
     AuthorRead,
-    AuthorListResponse,
+    AuthorListCursorResponse,
+    AuthorRollbackRequest,
 )
 from helpers.edit_history import (
     check_version_conflict,
@@ -39,56 +40,118 @@ router = APIRouter(prefix="/authors", tags=["Authors"])
 # PUBLIC ENDPOINTS (No Auth Required)
 # ========================================
 
-@router.get("", response_model=AuthorListResponse)
+@router.get("", response_model=AuthorListCursorResponse)
 async def list_authors(
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
-    search: str | None = Query(None, description="Search by name"),
-    sort: str = Query("name", regex="^(name|follower_count|created_at)$"),
-    order: str = Query("asc", regex="^(asc|desc)$"),
+    search: str | None = Query(None, description="Search by name or email (uses trigram similarity)"),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    List all approved, public authors.
-    No authentication required.
+    List approved, public authors with similarity search and cursor pagination.
+    
+    - If search is provided, uses trigram similarity (70% name, 30% email weight)
+    - Results sorted by similarity score DESC, then id ASC
+    - Uses cursor-based pagination for consistent results
+    - No authentication required
     """
-    # Base query - only show approved, public, non-deleted authors
-    query = select(Author).where(
-        and_(
-            Author.status == ContentStatus.APPROVED,
-            Author.is_public == True,
-            Author.is_deleted == False,
-        )
+    from helpers.cursor import decode_cursor, encode_cursor
+    
+    # Base conditions
+    base_conditions = and_(
+        Author.status == ContentStatus.APPROVED,
+        Author.is_public == True,
+        Author.is_deleted == False,
     )
     
-    # Search filter
     if search:
-        query = query.where(Author.name.ilike(f"%{search}%"))
+        # Trigram similarity search with weighted scoring
+        # Name: 70%, Email: 30%
+        name_sim = func.similarity(Author.name, search)
+        email_sim = func.coalesce(func.similarity(Author.email, search), 0.0)
+        score = (name_sim * 0.7 + email_sim * 0.3).label("similarity_score")
+        
+        # Use % operator for trigram matching (requires threshold met)
+        search_filter = or_(
+            Author.name.op("%")(search),
+            Author.email.op("%")(search) if search else False
+        )
+        
+        query = (
+            select(Author, score)
+            .where(and_(base_conditions, search_filter))
+            .order_by(score.desc(), Author.id.asc())
+        )
+        
+        # Cursor pagination for search results
+        if cursor:
+            cursor_data = decode_cursor(cursor)
+            last_score = cursor_data.get("score")
+            last_id = cursor_data.get("id")
+            
+            if last_score is not None and last_id is not None:
+                # Keyset pagination: (score < last_score) OR (score = last_score AND id > last_id)
+                query = query.where(
+                    or_(
+                        score < last_score,
+                        and_(score == last_score, Author.id > last_id)
+                    )
+                )
+        
+        query = query.limit(limit + 1)  # +1 to check if more pages exist
+        result = await db.execute(query)
+        rows = result.all()
+        
+        # Extract authors and scores
+        authors = [row[0] for row in rows]
+        scores = [float(row[1]) for row in rows]
+        
+    else:
+        # No search - return all by name
+        query = (
+            select(Author)
+            .where(base_conditions)
+            .order_by(Author.name.asc(), Author.id.asc())
+        )
+        
+        # Cursor pagination for listing
+        if cursor:
+            cursor_data = decode_cursor(cursor)
+            last_name = cursor_data.get("name")
+            last_id = cursor_data.get("id")
+            
+            if last_name is not None and last_id is not None:
+                query = query.where(
+                    or_(
+                        Author.name > last_name,
+                        and_(Author.name == last_name, Author.id > last_id)
+                    )
+                )
+        
+        query = query.limit(limit + 1)
+        result = await db.execute(query)
+        authors = result.scalars().all()
+        scores = None
     
-    # Sorting
-    order_col = getattr(Author, sort)
-    if order == "desc":
-        order_col = order_col.desc()
-    query = query.order_by(order_col)
+    # Check if more pages exist
+    has_more = len(authors) > limit
+    if has_more:
+        authors = authors[:limit]
+        if scores:
+            scores = scores[:limit]
     
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total = await db.scalar(count_query) or 0
+    # Generate next cursor
+    next_cursor = None
+    if has_more and authors:
+        last_author = authors[-1]
+        if search and scores:
+            next_cursor = encode_cursor({"score": scores[-1], "id": last_author.id})
+        else:
+            next_cursor = encode_cursor({"name": last_author.name, "id": last_author.id})
     
-    # Pagination
-    offset = (page - 1) * per_page
-    query = query.offset(offset).limit(per_page)
-    
-    # Execute
-    result = await db.execute(query)
-    authors = result.scalars().all()
-    
-    return AuthorListResponse(
+    return AuthorListCursorResponse(
         items=[AuthorRead.model_validate(a) for a in authors],
-        total=total,
-        page=page,
-        per_page=per_page,
-        pages=(total + per_page - 1) // per_page,
+        next_cursor=next_cursor,
     )
 
 
@@ -224,6 +287,8 @@ async def create_author(
     # Check if user can publish directly (trusted bypass)
     user_scopes = current_user.get("scopes", [])
     can_publish_direct = "authors:publish_direct" in user_scopes
+
+    # TODO Add crossservice to check if linked_user_id exists in database
     
     # Create author with status based on user privileges
     author = Author(
@@ -353,15 +418,17 @@ async def update_author(
             )
         )
         result = await db.execute(book_query)
-        books = result.scalars().all()
+        found_books = result.scalars().all()
         
-        if len(books) != len(data.book_ids):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more book IDs are invalid or not approved"
-            )
+        # Check if some books are missing (deleted or unapproved)
+        found_book_ids = {book.id for book in found_books}
+        missing_book_ids = set(data.book_ids) - found_book_ids
         
-        author.books = list(books)
+        if missing_book_ids:
+            # Log warning but allow partial update (books may have been deleted/rejected after initial association)
+            print(f"Warning: Cannot associate with books {missing_book_ids} - they are deleted, rejected, or don't exist")
+        
+        author.books = list(found_books)
     
     # Increment version and update metadata
     author.version += 1
@@ -386,6 +453,140 @@ async def update_author(
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
     author = result.scalar_one()
+    
+    return AuthorDetail.model_validate(author)
+
+@router.post("/{author_id}/rollback", response_model=AuthorDetail)
+async def rollback_author_version(
+    author_id: int,
+    data: AuthorRollbackRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Rollback author to a previous version from edit history.
+    
+    Permission required:
+    - Owner with 'authors:update_own' scope, OR
+    - User with 'authors:edit_public_meta' scope (wiki editor)
+    
+    Creates a new version with the old data (does not revert version number).
+    """
+    from sqlalchemy.orm import selectinload
+    
+    # Fetch author
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one_or_none()
+    
+    if not author:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Author not found"
+        )
+    
+    # Check version conflict
+    if author.version != data.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Version conflict. Current version is {author.version}, you have {data.version}"
+        )
+    
+    # Permission check
+    is_owner = str(author.created_by_user_id) == str(current_user["user_id"])
+    has_update_own = "authors:update_own" in current_user.get("scopes", [])
+    has_edit_public_meta = "authors:edit_public_meta" in current_user.get("scopes", [])
+    
+    if is_owner and has_update_own:
+        pass
+    elif has_edit_public_meta and author.status == ContentStatus.APPROVED:
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to rollback this author"
+        )
+    
+    # Fetch target version from edit history
+    history_query = select(EditHistory).where(
+        and_(
+            EditHistory.entity_type == "author",
+            EditHistory.entity_id == author_id,
+            EditHistory.version == data.target_version,
+        )
+    ).order_by(EditHistory.created_at.desc()).limit(1)
+    
+    result = await db.execute(history_query)
+    target_record = result.scalar_one_or_none()
+    
+    if not target_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Version {data.target_version} not found in edit history"
+        )
+    
+    # Apply old data to current entity
+    old_data = target_record.new_data
+    if old_data:
+        # Update fields from old version
+        if "name" in old_data:
+            author.name = old_data["name"]
+        if "email" in old_data:
+            author.email = old_data["email"]
+        if "bio" in old_data:
+            author.bio = old_data["bio"]
+        if "avatar_key" in old_data:
+            author.avatar_key = old_data["avatar_key"]
+        if "linked_user_id" in old_data:
+            author.linked_user_id = old_data["linked_user_id"]
+        
+        # Restore book associations if present
+        if "book_ids" in old_data:
+            book_ids = old_data["book_ids"]
+            # Fetch books including deleted ones (historical restoration should preserve associations)
+            books_result = await db.execute(select(Book).where(Book.id.in_(book_ids)))
+            found_books = books_result.scalars().all()
+            
+            # Check if some books are missing (hard deleted from database)
+            found_book_ids = {book.id for book in found_books}
+            missing_book_ids = set(book_ids) - found_book_ids
+            
+            if missing_book_ids:
+                # Log warning but continue with partial restoration
+                print(f"Warning: Cannot restore associations with books {missing_book_ids} - they no longer exist in database")
+            
+            author.books = list(found_books) # type: ignore
+        
+        # Warn if linked_user_id user no longer exists in auth service
+        if "linked_user_id" in old_data and old_data["linked_user_id"]:
+            from services.auth_client import validate_user_exists
+            user_exists = await validate_user_exists(UUID(old_data["linked_user_id"]))
+            if not user_exists:
+                print(f"Warning: Restoring linked_user_id {old_data['linked_user_id']} but user no longer exists in auth service")
+    
+    # Increment version (rollback creates new version)
+    old_version = author.version
+    author.version += 1
+    author.last_edited_by = current_user["user_id"]
+    author.last_edited_at = datetime.now(timezone.utc)
+    
+    # Record rollback in history
+    await record_update(
+        db=db,
+        entity_type="author",
+        entity_id=author.id,
+        user_id=current_user["user_id"],
+        old_data=serialize_entity(author),
+        new_data={"rollback_to_version": data.target_version},
+        new_version=author.version,
+        old_version=old_version,
+    )
+    
+    await db.commit()
+    await db.refresh(author)
+    
+    # Reload relationships
+    await db.execute(select(Author).where(Author.id == author_id).options(selectinload(Author.books)))
     
     return AuthorDetail.model_validate(author)
 
@@ -446,6 +647,11 @@ async def delete_own_author(
     
     await db.commit()
 
+# TODO give curator a recovery from delete, the deleted record can be access in jury at least 24 hours until autocleaned by background worker
+
+# TODO integrate with reputation system in auth&user service,
+# reputation = approved_count_of_all_entities + 3/ total_count_of_all_entities + 3,
+# check auth service if there is such column and endpoint, if not, implement that first
 
 @router.delete("/{author_id}/admin", status_code=status.HTTP_204_NO_CONTENT)
 async def takedown_author(
@@ -504,11 +710,10 @@ async def follow_author(
     db: AsyncSession = Depends(get_async_db),
 ):
     """
-    Follow an author to receive notifications.
-    Awards +3 trust points to author creator (max +6 per author).
+    Follow an author (no trust reward).
     Requires authentication.
     """
-    # Verify author exists and is approved
+    # Verify author exists and is approved (with lock to prevent race conditions)
     query = select(Author).where(
         and_(
             Author.id == author_id,
@@ -516,7 +721,7 @@ async def follow_author(
             Author.is_public == True,
             Author.is_deleted == False,
         )
-    )
+    ).with_for_update()
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -524,6 +729,13 @@ async def follow_author(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Author not found or not approved"
+        )
+    
+    # Double-check not deleted (race condition guard)
+    if author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Author has been deleted"
         )
     
     # Check if already following
@@ -553,19 +765,11 @@ async def follow_author(
     
     await db.commit()
     
-    # Award trust bonus (+3, max +6 enforced by Auth Service)
-    try:
-        await adjust_trust_for_social_bonus(
-            user_id=author.created_by_user_id,
-            action="follow",
-            entity_type="author",
-            entity_id=author.id,
-        )
-    except Exception as e:
-        # Log but don't fail the follow
-        print(f"Warning: Failed to adjust trust score: {e}")
+    # NOTE: Social trust rewards removed to prevent follow/unfollow exploit loop.
+    # Trust is only awarded for content approval and helpful reviews.
     
     return {"message": "Successfully followed author"}
+
 
 
 @router.delete("/{author_id}/follow", status_code=status.HTTP_204_NO_CONTENT)
@@ -600,6 +804,8 @@ async def unfollow_author(
     author_result = await db.execute(author_query)
     author = author_result.scalar_one_or_none()
     
+    # TODO delete the awarded trust bonus (-3, max -6 if follower from 2->1 or 1->0 ) but Auth Service can't enforce this logic, so we must check here
+    # TODO align to 3->1 delta change
     if author:
         author.follower_count = max(0, author.follower_count - 1)
     
@@ -609,7 +815,7 @@ async def unfollow_author(
 
 
 # ========================================
-# ADMIN ENDPOINTS
+# ADMIN/CURATOR ENDPOINTS
 # ========================================
 
 @router.post("/{author_id}/approve", response_model=AuthorDetail)
@@ -624,8 +830,8 @@ async def approve_author(
     Clears any existing jury votes and approves immediately.
     Awards +10 trust points to submitter.
     """
-    # Fetch author
-    query = select(Author).where(Author.id == author_id)
+    # Fetch author (lock to prevent concurrent approvals/rejections)
+    query = select(Author).where(Author.id == author_id).with_for_update()
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -639,6 +845,13 @@ async def approve_author(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Author is already approved"
+        )
+    
+    # Check not deleted (race condition guard)
+    if author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Cannot approve deleted author"
         )
     
     # Clear any existing jury votes (curator override bypasses voting)
@@ -699,8 +912,8 @@ async def reject_author(
     Clears any existing jury votes and rejects immediately.
     Deducts -5 trust points from submitter.
     """
-    # Fetch author
-    query = select(Author).where(Author.id == author_id)
+    # Fetch author (lock to prevent concurrent approvals/rejections)
+    query = select(Author).where(Author.id == author_id).with_for_update()
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -714,6 +927,13 @@ async def reject_author(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Author is already rejected"
+        )
+    
+    # Check not deleted (race condition guard)
+    if author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Cannot reject deleted author"
         )
     
     # Clear any existing jury votes (curator override bypasses voting)

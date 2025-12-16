@@ -39,6 +39,12 @@ class AuthorApproval(BaseModel):
     version: int = Field(..., description="Current version for optimistic locking")
 
 
+class AuthorRollbackRequest(BaseModel):
+    """Schema for rolling back to a previous version."""
+    target_version: int = Field(..., ge=1, description="Version number to rollback to")
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
 # ========================================
 # Response Schemas
 # ========================================
@@ -64,21 +70,6 @@ class AuthorWithBooks(AuthorRead):
 
 
 # ========================================
-# Follow/Social Schemas
-# ========================================
-
-class AuthorFollowCreate(BaseModel):
-    """Schema for following an author."""
-    author_id: int
-
-
-class AuthorFollowRead(BaseSchema):
-    """Response schema for follow relationship."""
-    author_id: int
-    created_at: str  # datetime
-
-
-# ========================================
 # Pagination Response
 # ========================================
 
@@ -89,3 +80,9 @@ class AuthorListResponse(BaseModel):
     page: int
     per_page: int
     pages: int
+
+
+class AuthorListCursorResponse(BaseModel):
+    """Cursor-based paginated list with similarity search."""
+    items: list[AuthorRead]
+    next_cursor: str | None = Field(None, description="Cursor for next page (null if last page)")

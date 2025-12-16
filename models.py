@@ -515,6 +515,11 @@ class PendingUpload(Base):
 # Edit History
 # ========================================
 
+# NOTE: EditHistory stores JSONB snapshots that may reference deleted entities
+# (e.g., book_ids of deleted books, linked_user_id of deleted users).
+# This is expected behavior for audit trail - historical records should not be modified.
+# Rollback operations handle missing references gracefully with warnings.
+
 class EditHistory(Base):
     """
     Complete edit history for all content with version tracking.

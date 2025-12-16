@@ -145,8 +145,8 @@ async def vote_on_author(
             detail="You don't have permission to vote"
         )
     
-    # Verify author exists and is PENDING
-    query = select(Author).where(Author.id == author_id)
+    # Verify author exists and is PENDING (lock to prevent concurrent modifications)
+    query = select(Author).where(Author.id == author_id).with_for_update()
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -160,6 +160,13 @@ async def vote_on_author(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Can only vote on PENDING content (current status: {author.status})"
+        )
+    
+    # Double-check not deleted (race condition guard)
+    if author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Author has been deleted"
         )
     
     # Cast vote

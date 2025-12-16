@@ -280,3 +280,27 @@ async def adjust_trust_for_social_bonus(
         reason=reason,
         metadata=metadata,
     )
+
+
+async def validate_user_exists(user_id: UUID) -> bool:
+    """
+    Check if a user exists in the Auth Service.
+    Used to validate linked_user_id before associating with author.
+    
+    Args:
+        user_id: User's UUID to validate
+        
+    Returns:
+        True if user exists, False otherwise
+    """
+    try:
+        url = f"{auth_service_client.base_url}/users/{user_id}/trust"
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(
+                url,
+                headers=auth_service_client._get_headers(),
+            )
+            return response.status_code == 200
+    except Exception as e:
+        logger.warning(f"Failed to validate user {user_id}: {str(e)}")
+        return False

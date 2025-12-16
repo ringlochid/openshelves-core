@@ -528,6 +528,138 @@ class Author(Base):
 
 **Status**: All endpoints implemented with jury voting system. All 33 comprehensive tests passing (100% success rate).
 
+### Phase 2.4: Author Enhancements (Polish & Optimization) ⏳ IN PROGRESS
+
+**Status**: Core functionality complete. Implementing advanced features and optimizations.
+
+**Outstanding Tasks from author.py TODOs:**
+
+#### Task 1: Implement Trigram Similarity Search for GET /authors ✅ PRIORITY
+- **Current**: Basic ILIKE search with pagination (`page`, `per_page`, `search`, `sort`, `order`)
+- **Target**: PostgreSQL trigram similarity with cursor pagination (like `author.py.old`)
+- **Why**: Better search quality, typo tolerance, proper ranking
+- **Implementation**:
+  - Use `func.similarity()` with `immutable_unaccent()` for name/email
+  - Add weighted scoring: `0.7 * name_sim + 0.3 * email_sim`
+  - Use trigram operator `%` for filtering: `Author.name.op("%")(normalized_query)`
+  - Replace offset pagination with cursor-based (encode `{id, score}` in cursor)
+  - Order by similarity score DESC, then id ASC
+  - Support `q` parameter for search, return items with `next_cursor`
+- **Files to modify**:
+  - `routers/author.py`: Rewrite `GET /authors` endpoint
+  - `schemas/author.py`: Add `AuthorListCursorResponse` with `next_cursor` field
+- **Reference**: `routers/author.py.old` lines 26-72 (similarity scoring)
+- **Reference**: `routers/book.py.old` lines 90-200 (cursor pagination with similarity)
+- **Test**: `tests/test_author_similarity_search.py` (new file)
+  - Test: Search returns results ranked by similarity
+  - Test: Cursor pagination works with similarity sort
+  - Test: Typos return close matches (e.g., "Steph King" finds "Stephen King")
+  - Test: Empty search returns all authors
+
+#### Task 2: Remove Social Bonus Trust Rewards ✅ CRITICAL - DESIGN DECISION
+- **Decision**: Remove trust rewards for follow/subscribe actions entirely
+- **Reason**: Exploit risk - users can repeatedly follow/unfollow to farm trust
+  - Without tracking: User follows → +3, unfollows, follows → +3 again (infinite loop)
+  - With tracking: Complex implementation requiring metadata on every follow/subscribe
+  - With caps: Still exploitable by single user doing follow/unfollow cycles
+- **Implementation**:
+  - `POST /authors/{id}/follow`: Remove `adjust_trust_for_social_bonus()` call
+  - `DELETE /authors/{id}/follow`: No trust adjustment needed
+  - Keep follower_count tracking for social proof (display purposes)
+  - Update comments explaining no trust rewards for social actions
+- **Files to modify**:
+  - `routers/author.py`: Lines 571-580 (remove trust call from follow endpoint)
+  - `services/auth_client.py`: Keep `adjust_trust_for_social_bonus()` for Phase 3 decision
+  - Update docstrings: "Follow author (no trust reward)"
+- **Also applies to**: Book subscriptions, collection subscriptions (Phase 3)
+- **Test updates**: `tests/test_author_workflow.py`
+  - Remove assertions about trust adjustments on follow
+  - Test follower_count still increments/decrements correctly
+  - Verify no Auth Service calls on follow/unfollow
+
+#### ~~Task 3: Add Unfollow Trust Adjustment~~ ❌ CANCELLED
+- **Decision**: No trust rewards for social actions → no need for unfollow adjustments
+- **Reason**: Removed to prevent follow/unfollow exploit loop
+
+#### Task 4: Implement Version Rollback Endpoint ⏳ OPTIONAL
+- **Endpoint**: `POST /authors/{id}/rollback?target_version={version}`
+- **Purpose**: Revert author to previous version (undo vandalism)
+- **Requirements**:
+  - Requires: `authors:edit_public_meta` scope (contributor+)
+  - Or: Author owner with `authors:update_own`
+  - Fetch `EditHistory` record for `target_version`
+  - Apply `old_data` as current data (reverse the change)
+  - Increment version (new version, not same as target)
+  - Record new edit history: `action=RECOVER, reason="Rollback to v{target_version}"`
+- **Files to add**:
+  - `routers/author.py`: New endpoint `POST /authors/{id}/rollback`
+  - `schemas/author.py`: Add `AuthorRollbackRequest(target_version: int)`
+- **Test**: `tests/test_author_rollback.py`
+  - Test: Rollback restores previous data
+  - Test: Version increments correctly
+  - Test: Permission check (owner or wiki editor)
+  - Test: Can't rollback to non-existent version (404)
+
+#### Task 5: Add Curator Recovery from Soft Delete ⏳ OPTIONAL
+- **Endpoint**: `POST /authors/{id}/recover`
+- **Purpose**: Restore soft-deleted content within 24h window
+- **Requirements**:
+  - Requires: `jury:override` scope (curator+)
+  - Check: `is_deleted=True` and `deleted_at` within 24 hours
+  - Set: `is_deleted=False`, `deleted_at=NULL`, `is_public` restore based on status
+  - Record edit history: `action=RECOVER`
+- **Background worker**: Add Celery task to hard-delete records after 24h
+  - Task: `tasks/cleanup.py` - `auto_purge_deleted_content()`
+  - Schedule: Run daily, delete where `is_deleted=True AND deleted_at < NOW() - INTERVAL '24 hours'`
+  - Config: `SOFT_DELETE_WINDOW_HOURS=24` in settings
+- **Files to modify**:
+  - `routers/author.py`: Add `POST /authors/{id}/recover`
+  - `tasks/cleanup.py`: New file for cleanup tasks
+  - `worker/worker.py`: Register periodic task
+- **Test**: `tests/test_curator_recovery.py`
+  - Test: Curator can recover within 24h
+  - Test: Recovery fails after 24h (410 Gone)
+  - Test: Non-curator can't access endpoint (403)
+
+#### Task 6: Cross-Service User Existence Validation ⏳ DEFERRED
+- **Current**: `linked_user_id` not validated (accepts any UUID)
+- **Problem**: Can link to non-existent user in Auth Service
+- **Implementation**:
+  - Add Auth Service endpoint: `GET /admin/users/{user_id}/exists` (returns 200/404)
+  - Library Service calls before creating author with `linked_user_id`
+  - Return 400 if user doesn't exist: "User {user_id} not found in Auth Service"
+- **Files to modify**:
+  - `services/auth_client.py`: Add `async def check_user_exists(user_id: UUID) -> bool`
+  - `routers/author.py`: Line 233 - Add validation check
+- **Decision**: Defer to Phase 4 (not critical for MVP, adds latency to author creation)
+
+#### Task 7: Integrate Reputation System from Auth Service ⏳ DEFERRED
+- **Current**: No reputation-based role checks (only trust score)
+- **Goal**: Use `reputation_percentage` from JWT for role thresholds
+- **Requirement**: Auth Service must calculate reputation: `approved_count / total_count * 100`
+- **Implementation**:
+  - Check Auth Service models: Does `User` table have `approved_count` and `total_count`?
+  - If missing: Add to Auth Service first (out of scope for Library Service)
+  - If exists: Already in JWT (`user["reputation_percentage"]`), no Library changes needed
+- **Decision**: Defer to Phase 4 (Auth Service enhancement required first)
+
+**Priority Order:**
+1. ✅ **Task 1** (Similarity Search) - Improves UX significantly
+2. ✅ **Task 2** (Remove Social Trust) - Security critical, prevents exploitation
+3. ⏳ **Task 5** (Curator Recovery) - Useful for moderation workflow
+4. ⏳ **Task 4** (Version Rollback) - Nice-to-have for vandalism recovery
+5. ⏳ **Task 6** (User Validation) - Adds latency, defer to Phase 4
+6. ⏳ **Task 7** (Reputation) - Requires Auth Service changes first
+
+**Estimated Time:**
+- Task 1 (Similarity): 4-6 hours (complex query logic, cursor encoding)
+- Task 2 (Remove Social Trust): 30 mins (remove function calls, update tests)
+- Task 5 (Recovery): 3-4 hours (endpoint + Celery task)
+- Task 4 (Rollback): 2-3 hours (edit history lookup + apply)
+- **Total for Priority Tasks**: ~8-12 hours (1-1.5 days)
+
+**Test Coverage Target**: 100+ tests (88 current + 12+ new for enhancements)
+
 **Completed Implementation:**
 - ✅ Direct publish path for trusted users (bypasses queue)
 - ✅ Ownership-based permissions (owner vs wiki-editor)
