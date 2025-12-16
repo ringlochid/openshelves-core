@@ -16,7 +16,6 @@ from .shared import BaseSchema, TimestampMixin
 
 class ReviewCreate(BaseModel):
     """Schema for creating a book review."""
-    book_id: int = Field(..., description="Book being reviewed")
     rating: int = Field(..., ge=1, le=5, description="Rating from 1 to 5")
     comment: str | None = Field(None, min_length=1, description="Review comment (no empty strings)")
 
@@ -43,6 +42,11 @@ class ReviewDetail(ReviewRead):
 # ========================================
 # Voting Schemas
 # ========================================
+
+class VoteRequest(BaseModel):
+    """Schema for voting on review helpfulness."""
+    vote: str = Field(..., pattern="^(helpful|unhelpful)$", description="helpful or unhelpful")
+
 
 class ReviewVoteCreate(BaseModel):
     """Schema for voting on review helpfulness."""

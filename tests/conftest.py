@@ -328,3 +328,144 @@ async def redis():
     fake_redis = FakeRedis()
     yield fake_redis
     # Cleanup is automatic since it's just a dict in memory
+
+
+# ========================================
+# BOOK & REVIEW FIXTURES (Phase 3)
+# ========================================
+
+@pytest.fixture
+async def approved_author(test_db):
+    """Create an approved, public author for book tests."""
+    from models import Author, ContentStatus
+    
+    author = Author(
+        name="Test Author",
+        email="author@example.com",
+        bio="Test bio",
+        created_by_user_id=uuid4(),
+        status=ContentStatus.APPROVED,
+        is_public=True,
+        version=1,
+    )
+    test_db.add(author)
+    await test_db.commit()
+    await test_db.refresh(author)
+    return author
+
+
+@pytest.fixture
+async def pending_book(test_db, approved_author):
+    """Create a pending book for approval tests."""
+    from models import Book, ContentStatus
+    
+    book = Book(
+        title="Pending Test Book",
+        year=2023,
+        description="Test description",
+        tags=["test", "pending"],
+        created_by_user_id=uuid4(),
+        status=ContentStatus.PENDING,
+        is_public=False,
+        version=1,
+    )
+    book.authors = [approved_author]
+    test_db.add(book)
+    await test_db.commit()
+    await test_db.refresh(book)
+    return book
+
+
+@pytest.fixture
+async def approved_book(test_db, approved_author):
+    """Create an approved, public book for testing."""
+    from models import Book, ContentStatus
+    
+    book = Book(
+        title="Approved Test Book",
+        year=2023,
+        description="Test description",
+        created_by_user_id=uuid4(),
+        status=ContentStatus.APPROVED,
+        is_public=True,
+        version=1,
+    )
+    book.authors = [approved_author]
+    test_db.add(book)
+    await test_db.commit()
+    await test_db.refresh(book)
+    return book
+
+
+@pytest.fixture
+async def rejected_book(test_db, approved_author):
+    """Create a rejected book for testing."""
+    from models import Book, ContentStatus
+    
+    book = Book(
+        title="Rejected Test Book",
+        year=2023,
+        created_by_user_id=uuid4(),
+        status=ContentStatus.REJECTED,
+        is_public=False,
+        version=1,
+    )
+    book.authors = [approved_author]
+    test_db.add(book)
+    await test_db.commit()
+    await test_db.refresh(book)
+    return book
+
+
+@pytest.fixture
+async def deleted_book(test_db, approved_author):
+    """Create a soft-deleted book for recovery tests."""
+    from models import Book, ContentStatus
+    from datetime import datetime, timezone
+    
+    book = Book(
+        title="Deleted Test Book",
+        year=2023,
+        created_by_user_id=uuid4(),
+        status=ContentStatus.APPROVED,
+        is_public=False,
+        is_deleted=True,
+        deleted_at=datetime.now(timezone.utc),
+        version=1,
+    )
+    book.authors = [approved_author]
+    test_db.add(book)
+    await test_db.commit()
+    await test_db.refresh(book)
+    return book
+
+
+@pytest.fixture
+def regular_user():
+    """Regular user with basic permissions."""
+    return {
+        "user_id": str(uuid4()),
+        "scopes": ["books:draft", "books:update_own", "reviews:create"],
+        "trust_score": 5,
+    }
+
+
+@pytest.fixture
+def curator_user():
+    """Curator user with override permissions."""
+    return {
+        "user_id": str(uuid4()),
+        "scopes": ["jury:override", "content:takedown"],
+        "trust_score": 85,
+        "reputation": 95,
+    }
+
+
+@pytest.fixture
+def subscribed_user():
+    """User for subscription tests."""
+    return {
+        "user_id": str(uuid4()),
+        "scopes": ["books:read"],
+        "trust_score": 10,
+    }

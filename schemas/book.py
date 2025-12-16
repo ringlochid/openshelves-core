@@ -69,6 +69,12 @@ class BookApproval(BaseModel):
     version: int = Field(..., description="Current version for optimistic locking")
 
 
+class RollbackRequest(BaseModel):
+    """Schema for rolling back to a previous version."""
+    target_version: int = Field(..., gt=0, description="Version to rollback to")
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
 # ========================================
 # Response Schemas
 # ========================================
@@ -85,7 +91,7 @@ class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
     title: str
     year: int | None
     description: str | None
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] | None = Field(default=None)
     cover_key: str | None
     file_key: str | None
     file_format: str | None

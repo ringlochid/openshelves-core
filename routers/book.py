@@ -335,7 +335,7 @@ async def create_book(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Invalidate caches
     await cache.bump_cache_version("books:list", r)
@@ -456,7 +456,7 @@ async def update_book(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
@@ -647,7 +647,7 @@ async def rollback_book_version(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
@@ -720,7 +720,7 @@ async def recover_deleted_book(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
@@ -785,7 +785,7 @@ async def approve_book(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Award trust to submitter (+20 for books, doubled reward)
     try:
@@ -858,7 +858,7 @@ async def reject_book(
     )
     
     await db.commit()
-    await db.refresh(book, ["authors"])
+    await db.refresh(book, ["authors", "reviews"])
     
     # Penalize submitter (-10 for books, doubled penalty)
     try:
