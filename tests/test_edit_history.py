@@ -137,9 +137,13 @@ class TestRecordEdit:
     async def test_record_edit_create(self):
         """Should record a CREATE action."""
         db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
         user_id = uuid4()
         data = {"title": "Test Book", "year": 2023}
-        
+    
         history = await record_edit(
             db=db,
             entity_type="book",
@@ -170,9 +174,13 @@ class TestRecordEdit:
     async def test_record_create_convenience(self):
         """Should use convenience function for CREATE."""
         db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
         user_id = uuid4()
         data = {"name": "Test Author"}
-        
+    
         history = await record_create(
             db=db,
             entity_type="author",
@@ -189,10 +197,14 @@ class TestRecordEdit:
     async def test_record_update_convenience(self):
         """Should use convenience function for UPDATE."""
         db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
         user_id = uuid4()
         old_data = {"title": "Old Title", "year": 2020}
         new_data = {"title": "New Title", "year": 2023}
-        
+    
         history = await record_update(
             db=db,
             entity_type="book",
@@ -213,9 +225,13 @@ class TestRecordEdit:
     async def test_record_delete_convenience(self):
         """Should use convenience function for DELETE."""
         db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
         user_id = uuid4()
         data = {"title": "Deleted Book", "year": 2020}
-        
+    
         history = await record_delete(
             db=db,
             entity_type="book",

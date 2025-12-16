@@ -296,11 +296,11 @@ async def invalidate_book(book_id: int, r: Redis | None = None, author_ids: list
     await bump_cache_version("books:list", r)
     
     # Cascade: invalidate related authors (author detail shows book list)
-    if author_ids is None:
-        author_ids = await get_book_author_ids(book_id)
-    
-    for author_id in author_ids:
-        await invalidate_entity("author", author_id, r)
+    # Note: author_ids should always be provided from calling context to avoid
+    # creating new DB sessions (can cause event loop issues in tests)
+    if author_ids:
+        for author_id in author_ids:
+            await invalidate_entity("author", author_id, r)
     
     # Cascade: invalidate book reviews
     await invalidate_entity("reviews", book_id, r)

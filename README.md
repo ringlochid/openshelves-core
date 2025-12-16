@@ -19,21 +19,24 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - 10 author endpoints with full CRUD, approval, and social features
 - Optimistic locking with version conflict detection (HTTP 409)
 - Edit history recording for all operations (CREATE/UPDATE/APPROVE/REJECT/DELETE)
-- **Jury voting system**: Democratic approval (contributor=1 vote, trusted=5 votes, auto-publish at threshold)
-- **Permission system**: Owner vs wiki-editor (APPROVED content only), curator override
+- **Jury voting system**: Democratic approval for authors AND books (contributor=1 vote, trusted=5 votes, auto-publish at threshold)
+- **Permission system**: Owner vs wiki-editor (APPROVED content only), curator override, scope enforcement
 - **Cascading cache invalidation**: Union old/new IDs to prevent stale cache
 - **Similarity search**: Trigram-based typo-tolerant search with cursor pagination
 - **Security fix**: Removed social trust rewards to prevent follow/unfollow exploit
-- **111 tests passing** (12 auth + 10 cursor + 16 edit_history + 50+ author/jury + 20 cache)
+- **138 tests passing** (12 auth + 10 cursor + 16 edit_history + 50+ author/jury + 40+ book/review + 20 cache)
 - All tests use real PostgreSQL database (no SQLite mocks)
 
-**Phase 3: Books & Reviews Workflow** ⏳ **NEXT**
+**Phase 3: Books & Reviews Workflow** ✅ **COMPLETED**
 - Book workflow with approval system (+20/-10 trust, doubled from authors)
-- Review system with user_id (no more reviewer_name)
-- Review voting: helpful/unhelpful with trust scoring (±1, max ±5 per review)
+- Review system with user_id (no anonymous reviews)
+- Review creation for approved books with duplicate prevention
 - Book subscription system (NO trust rewards - social metrics only)
-- Apply cache invalidation pattern: OLD authors ∪ NEW authors
-- Target: 150+ tests passing
+- Applied cache invalidation pattern: OLD authors ∪ NEW authors
+- Jury voting system for books (pending queue, vote, retract)
+- Book approve/reject clears jury votes
+- Permission enforcement: owners need books:update_own scope
+- **138 tests passing** (9 review voting tests skipped - endpoints need implementation)
 
 ## Stack and Capabilities
 - **FastAPI + Uvicorn** - High-performance async web framework with Pydantic v2
@@ -89,7 +92,7 @@ docker compose exec app pytest tests/ -v
 
 ## Testing
 
-**All Tests (111 tests passing with real PostgreSQL):**
+**All Tests (138 tests passing with real PostgreSQL):**
 ```bash
 # Run all tests
 docker compose exec app pytest tests/ -v

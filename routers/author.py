@@ -250,10 +250,11 @@ async def get_author_books(
         {
             "id": book.id,
             "title": book.title,
-            "isbn": book.isbn,
-            "publication_year": book.publication_year,
+            "year": book.year,
             "description": book.description,
-            "cover_image_key": book.cover_image_key,
+            "cover_key": book.cover_key,
+            "tags": book.tags,
+            "file_format": book.file_format,
         }
         for book in books
     ]
@@ -302,7 +303,11 @@ async def create_author(
     user_scopes = current_user.get("scopes", [])
     can_publish_direct = "authors:publish_direct" in user_scopes
 
-    # TODO Add crossservice to check if linked_user_id exists in database
+    # TODO: SECURITY RISK - linked_user_id validation
+    # Currently accepts any UUID without cross-service validation to Auth Service.
+    # Risk: linking to nonexistent users. Should call Auth Service API to verify
+    # user exists before accepting linked_user_id.
+    # Recommendation: Add auth_client.verify_user_exists(linked_user_id) call.
     
     # Create author with status based on user privileges
     author = Author(
@@ -412,8 +417,8 @@ async def update_author(
             detail="Insufficient permissions. Owner needs 'authors:update_own' or wiki-editor needs 'authors:edit_public_meta' (APPROVED only)"
         )
     
-    # Store old data for history
-    old_data = author
+    # Store old data for history (serialize BEFORE any modifications)
+    old_data = serialize_entity(author)
     
     # Capture previous book_ids BEFORE modifying (needed for cache invalidation)
     previous_book_ids = {book.id for book in author.books} if author.books else set()
@@ -464,7 +469,7 @@ async def update_author(
         entity_type="author",
         entity_id=author.id,
         user_id=current_user["user_id"],
-        old_data=serialize_entity(old_data),
+        old_data=old_data,  # Already serialized above
         new_data=serialize_entity(author),
         new_version=author.version,
         old_version=author.version - 1,

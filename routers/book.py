@@ -35,6 +35,7 @@ from helpers.edit_history import (
     serialize_entity,
 )
 from helpers.cursor import encode_cursor, decode_cursor
+from helpers.jury import clear_jury_votes
 from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection
 import cache
 from cache import Redis
@@ -386,12 +387,22 @@ async def update_book(
     user_id = UUID(current_user["user_id"])
     user_scopes = current_user.get("scopes", [])
     is_owner = book.created_by_user_id == user_id
+    has_update_own = "books:update_own" in user_scopes
     is_wiki_editor = "books:edit_public_meta" in user_scopes and book.status == ContentStatus.APPROVED
     
-    if not (is_owner or is_wiki_editor):
+    # Permission logic:
+    # 1. Owner with books:update_own → can update own book (pending or approved)
+    # 2. Non-owner with books:edit_public_meta → can update ANY APPROVED book (wiki mode)
+    if is_owner and has_update_own:
+        # Owner can update their own book
+        pass
+    elif is_wiki_editor:
+        # Wiki editor can update any APPROVED book
+        pass
+    else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to edit this book"
+            detail="Insufficient permissions. Owner needs 'books:update_own' or wiki-editor needs 'books:edit_public_meta' (APPROVED only)"
         )
     
     # Version conflict check
@@ -563,6 +574,9 @@ async def rollback_book_version(
             detail="Not authorized to rollback this book"
         )
     
+    # Optimistic locking: check caller's version matches current version
+    check_version_conflict(book.version, data.version, "book", book_id)
+    
     # Find target version in history
     from models import EditHistory
     history_query = select(EditHistory).where(
@@ -581,7 +595,7 @@ async def rollback_book_version(
             detail=f"Version {data.target_version} not found in history"
         )
     
-    # Check version conflict
+    # Check version conflict (cannot rollback forward)
     if data.target_version >= book.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -784,6 +798,9 @@ async def approve_book(
         old_version=old_version,
     )
     
+    # Clear any pending jury votes
+    await clear_jury_votes(db, "book", book.id)
+    
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
     
@@ -856,6 +873,9 @@ async def reject_book(
         new_version=book.version,
         old_version=old_version,
     )
+    
+    # Clear any pending jury votes
+    await clear_jury_votes(db, "book", book.id)
     
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
@@ -1010,14 +1030,18 @@ async def create_review(
     Create a review for an approved book.
     One review per user per book (unique constraint).
     """
-    # Verify book exists and is approved
-    book_query = select(Book).where(
-        and_(
-            Book.id == book_id,
-            Book.status == ContentStatus.APPROVED,
-            Book.is_public == True,
-            Book.is_deleted == False,
+    # Verify book exists and is approved (load authors for cache invalidation)
+    book_query = (
+        select(Book)
+        .where(
+            and_(
+                Book.id == book_id,
+                Book.status == ContentStatus.APPROVED,
+                Book.is_public == True,
+                Book.is_deleted == False,
+            )
         )
+        .options(selectinload(Book.authors))
     )
     book_result = await db.execute(book_query)
     book = book_result.scalar_one_or_none()
@@ -1060,8 +1084,9 @@ async def create_review(
     await db.commit()
     await db.refresh(review)
     
-    # Invalidate book cache
-    await cache.invalidate_book(book_id, r)
+    # Invalidate book cache (with author IDs for cascading)
+    author_ids = [author.id for author in book.authors]
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
     
     return ReviewRead.model_validate(review)
 

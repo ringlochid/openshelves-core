@@ -7,9 +7,11 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_async_db
+from cache import get_redis
 from dependencies.auth import get_current_user, require_scope
-from models import Author, ContentStatus
+from models import Author, Book, ContentStatus
 from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
+from schemas.book import BookDetail, BookListRead
 from helpers.jury import (
     calculate_vote_weight,
     cast_jury_vote,
@@ -141,6 +143,7 @@ async def vote_on_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r = Depends(get_redis),
 ):
     """
     Cast a jury vote on a pending author.
@@ -170,7 +173,14 @@ async def vote_on_author(
         )
     
     # Verify author exists and is PENDING (lock to prevent concurrent modifications)
-    query = select(Author).where(Author.id == author_id).with_for_update()
+    # Eagerly load books relationship for cache invalidation
+    from sqlalchemy.orm import selectinload
+    query = (
+        select(Author)
+        .where(Author.id == author_id)
+        .options(selectinload(Author.books))
+        .with_for_update()
+    )
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -201,6 +211,8 @@ async def vote_on_author(
             entity_type="author",
             entity_id=author_id,
             vote_value=vote_value,
+            entity=author,  # Pass eagerly-loaded entity
+            redis_client=r,  # Pass redis for cache invalidation
         )
     except ValueError as e:
         raise HTTPException(
@@ -280,3 +292,204 @@ async def get_author_vote_status(
     )
     
     return vote_status
+
+
+# ========================================
+# BOOK JURY ENDPOINTS
+# ========================================
+
+@router.get("/books", response_model=dict)
+async def list_pending_books(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort: str = Query("created_at", pattern="^(created_at|vote_score|title)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    List pending books in jury queue.
+    Requires 'jury:view' scope (contributor: trust_score >= 10).
+    
+    Shows books awaiting jury votes or curator approval.
+    """
+    # Try cache first
+    params = {"page": page, "per_page": per_page, "sort": sort, "order": order}
+    cached = await cache.get_list("jury:books", params, r=r)
+    if cached is not None:
+        return cached
+    
+    # Base query - only show PENDING, non-deleted books
+    query = select(Book).where(
+        and_(
+            Book.status == ContentStatus.PENDING,
+            Book.is_deleted == False,
+        )
+    )
+    
+    # Sorting
+    order_col = getattr(Book, sort)
+    if order == "desc":
+        query = query.order_by(order_col.desc())
+    else:
+        query = query.order_by(order_col.asc())
+    
+    # Get total count
+    from sqlalchemy import func
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query) or 0
+    
+    # Pagination
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+    
+    result = await db.execute(query)
+    books = result.scalars().all()
+    
+    response = {
+        "items": [BookListRead.model_validate(book) for book in books],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
+    }
+    
+    # Cache the response
+    await cache.cache_list("jury:books", params, response, r=r)
+    
+    return response
+
+
+@router.get("/books/{book_id}", response_model=BookDetail)
+async def get_pending_book_detail(
+    book_id: int,
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """Get detailed information about a pending book in the jury queue."""
+    from sqlalchemy.orm import selectinload
+    
+    query = (
+        select(Book)
+        .where(
+            and_(
+                Book.id == book_id,
+                Book.status == ContentStatus.PENDING,
+                Book.is_deleted == False,
+            )
+        )
+        .options(selectinload(Book.authors), selectinload(Book.reviews))
+    )
+    result = await db.execute(query)
+    book = result.scalar_one_or_none()
+    
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book not found in jury queue"
+        )
+    
+    return BookDetail.model_validate(book)
+
+
+@router.post("/books/{book_id}/vote")
+async def vote_on_book(
+    book_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r = Depends(get_redis),
+):
+    """
+    Cast a jury vote on a pending book.
+    Vote weight based on user scopes (contributor=1, trusted=5).
+    """
+    # Verify book is PENDING (eagerly load authors for cache invalidation)
+    from sqlalchemy.orm import selectinload
+    query = (
+        select(Book)
+        .where(Book.id == book_id)
+        .options(selectinload(Book.authors))
+        .with_for_update()
+    )
+    result = await db.execute(query)
+    book = result.scalar_one_or_none()
+    
+    if not book or book.status != ContentStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book not found in jury queue"
+        )
+    
+    # Cast vote (handles weight calculation, duplicate prevention, auto-approval)
+    from uuid import UUID
+    vote_value = calculate_vote_weight(current_user.get("scopes", []))
+    
+    if vote_value == 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to vote"
+        )
+    
+    result = await cast_jury_vote(
+        db=db,
+        user_id=UUID(current_user["user_id"]),
+        entity_type="book",
+        entity_id=book_id,
+        vote_value=vote_value,
+        entity=book,  # Pass eagerly-loaded entity
+        redis_client=r,  # Pass redis for cache invalidation
+    )
+    
+    await db.commit()
+    
+    return {
+        "message": "Vote cast successfully",
+        "vote_weight": result["vote_weight"],
+        "new_vote_score": result["new_vote_score"],
+        "auto_approved": result.get("auto_approved", False),
+    }
+
+
+@router.delete("/books/{book_id}/vote", status_code=status.HTTP_204_NO_CONTENT)
+async def retract_vote_on_book(
+    book_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Retract your jury vote on a pending book."""
+    from uuid import UUID
+    
+    await retract_jury_vote(
+        db=db,
+        entity_type="book",
+        entity_id=book_id,
+        user_id=UUID(current_user["user_id"]),
+    )
+    
+    await db.commit()
+
+
+@router.get("/books/{book_id}/votes")
+async def get_book_vote_status(
+    book_id: int,
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get voting status and statistics for a pending book."""
+    from uuid import UUID
+    
+    status = await get_vote_status(
+        db=db,
+        entity_type="book",
+        entity_id=book_id,
+        user_id=UUID(current_user["user_id"]),
+    )
+    
+    return {
+        "has_voted": status["has_voted"],
+        "vote_weight": status["vote_weight"],
+        "total_votes": status["total_votes"],
+        "threshold": status["threshold"],
+    }

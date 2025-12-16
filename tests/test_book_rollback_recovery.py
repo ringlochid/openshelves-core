@@ -149,6 +149,8 @@ class TestBookRecovery:
         deleted_book.deleted_at = datetime.now(timezone.utc) - timedelta(hours=12)
         await test_db.commit()
         
+        old_version = deleted_book.version  # Store before recovery
+        
         with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
             with patch("routers.book.cache.invalidate_author", new=AsyncMock()):
                 with patch("routers.book.cache.invalidate_book", new=AsyncMock()):
@@ -162,7 +164,7 @@ class TestBookRecovery:
         
         assert book.is_deleted is False
         assert book.deleted_at is None
-        assert book.version > deleted_book.version
+        assert book.version == old_version + 1
     
     async def test_recover_after_24h_fails(self, test_db, deleted_book, curator_user):
         """Cannot recover book deleted more than 24 hours ago."""

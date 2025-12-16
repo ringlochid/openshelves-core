@@ -22,10 +22,11 @@ class TestBookUpdate:
             "scopes": ["books:update_own"],
         }
         
+        old_version = pending_book.version  # Store before update
         data = BookUpdate(
             title="Updated Title",
             description="Updated description",
-            version=pending_book.version,
+            version=old_version,
         )
         
         with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
@@ -42,7 +43,7 @@ class TestBookUpdate:
         
         assert book.title == "Updated Title"
         assert book.description == "Updated description"
-        assert book.version == pending_book.version + 1
+        assert book.version == old_version + 1
     
     async def test_wiki_editor_can_update_approved_book(self, test_db, approved_book):
         """Wiki editor can update APPROVED book (not their own)."""
@@ -54,9 +55,10 @@ class TestBookUpdate:
             "scopes": ["books:edit_public_meta"],
         }
         
+        old_version = approved_book.version  # Store before update
         data = BookUpdate(
             description="Wiki-edited description",
-            version=approved_book.version,
+            version=old_version,
         )
         
         with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
@@ -72,7 +74,7 @@ class TestBookUpdate:
                         )
         
         assert book.description == "Wiki-edited description"
-        assert book.version == approved_book.version + 1
+        assert book.version == old_version + 1
     
     async def test_non_owner_cannot_update_pending_book(self, test_db, pending_book):
         """Non-owner cannot update PENDING book without wiki edit scope."""

@@ -46,6 +46,8 @@ async def cast_jury_vote(
     entity_type: str,
     entity_id: int,
     vote_value: int,
+    entity = None,  # Optional: pre-loaded entity with relationships
+    redis_client = None,  # Optional: redis client for cache invalidation
 ) -> dict:
     """
     Cast a jury vote on pending content.
@@ -56,6 +58,7 @@ async def cast_jury_vote(
         entity_type: 'author', 'book', or 'collection'
         entity_id: ID of the entity
         vote_value: 1 or 5 (calculated from user scopes)
+        entity: Optional pre-loaded entity with eager-loaded relationships
         
     Returns:
         Dictionary with:
@@ -78,9 +81,10 @@ async def cast_jury_vote(
     if existing_vote:
         raise ValueError("User has already voted on this content")
     
-    # Get the entity
-    entity_model = _get_entity_model(entity_type)
-    entity = await db.get(entity_model, entity_id)
+    # Get the entity if not provided
+    if entity is None:
+        entity_model = _get_entity_model(entity_type)
+        entity = await db.get(entity_model, entity_id)
     
     if not entity:
         raise ValueError(f"{entity_type.capitalize()} not found")
@@ -104,6 +108,10 @@ async def cast_jury_vote(
     # Check if threshold met
     auto_published = False
     if current_score >= VOTE_THRESHOLD:
+        # Capture OLD state BEFORE mutating (for edit history)
+        old_data = serialize_entity(entity)
+        old_version = entity.version
+        
         # Auto-publish!
         entity.status = ContentStatus.APPROVED
         entity.is_public = True
@@ -115,10 +123,10 @@ async def cast_jury_vote(
             entity_type=entity_type,
             entity_id=entity_id,
             user_id=user_id,  # The voter who pushed it over threshold
-            old_data=serialize_entity(entity),
-            new_data=serialize_entity(entity),
+            old_data=old_data,  # Pre-approve state
+            new_data=serialize_entity(entity),  # Post-approve state
             new_version=entity.version,
-            old_version=entity.version - 1,
+            old_version=old_version,
         )
         
         auto_published = True
@@ -135,6 +143,10 @@ async def cast_jury_vote(
         except Exception as e:
             # Log but don't fail the approval
             print(f"Warning: Failed to adjust trust score: {e}")
+        
+        # Invalidate caches to prevent stale PENDING/jury queue data
+        if redis_client:
+            await _invalidate_entity_caches(db, entity_type, entity_id, entity, redis_client)
     
     await db.commit()
     
@@ -283,6 +295,42 @@ async def clear_jury_votes(
         await db.delete(vote)
     
     return count or 0
+
+
+async def _invalidate_entity_caches(db: AsyncSession, entity_type: str, entity_id: int, entity, redis_client):
+    """
+    Invalidate caches after auto-publish to prevent stale PENDING/jury queue data.
+    
+    Args:
+        db: Database session
+        entity_type: 'author', 'book', or 'collection'
+        entity_id: ID of the entity
+        entity: The entity object (for getting related IDs)
+        redis_client: Redis client for cache operations
+    """
+    import cache
+    
+    r = redis_client
+    
+    if entity_type == "author":
+        # Get book IDs for cascading invalidation
+        book_ids = [book.id for book in entity.books] if entity.books else []
+        await cache.invalidate_author(entity_id, r, book_ids=book_ids)
+        await cache.bump_cache_version("authors:list", r)
+        await cache.bump_cache_version("jury:authors", r)
+    
+    elif entity_type == "book":
+        # Get author IDs for cascading invalidation
+        author_ids = [author.id for author in entity.authors] if entity.authors else []
+        for author_id in author_ids:
+            await cache.invalidate_author(author_id, r, book_ids=[entity_id])
+        await cache.invalidate_book(entity_id, r, author_ids=author_ids)
+        await cache.bump_cache_version("books:list", r)
+        await cache.bump_cache_version("jury:books", r)
+    
+    elif entity_type == "collection":
+        # TODO: Implement collection cache invalidation when collections are added
+        pass
 
 
 def _get_entity_model(entity_type: str):
