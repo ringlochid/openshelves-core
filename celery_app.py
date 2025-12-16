@@ -34,18 +34,15 @@ app.conf.update(
         # Cleanup soft-deleted content daily at 2 AM
         "cleanup-soft-deleted-daily": {
             "task": "tasks.cleanup.cleanup_soft_deleted_content",
-            "schedule": crontab(hour=2, minute=0),
+            "schedule": crontab(hour="2", minute="0"),
         },
         # Cleanup expired uploads hourly
         "cleanup-expired-uploads-hourly": {
             "task": "tasks.cleanup.cleanup_expired_uploads",
-            "schedule": crontab(minute=0),
+            "schedule": crontab(minute="0"),
         },
     },
 )
 
-
-@app.task
-def ping():
-    """Health check task."""
-    return "pong"
+# Ensure tasks under app.tasks.* are registered
+app.autodiscover_tasks(["app.tasks"])

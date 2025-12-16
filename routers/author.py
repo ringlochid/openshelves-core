@@ -2,7 +2,7 @@
 Author router with wiki-style workflow and RBAC.
 Implements Phase 2 author management endpoints.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_
@@ -647,7 +647,83 @@ async def delete_own_author(
     
     await db.commit()
 
-# TODO give curator a recovery from delete, the deleted record can be access in jury at least 24 hours until autocleaned by background worker
+
+@router.post("/{author_id}/recover", response_model=AuthorDetail)
+async def recover_deleted_author(
+    author_id: int,
+    current_user: dict = Depends(require_scope("jury:override")),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Recover a soft-deleted author (curator only).
+    Only works within 24 hours of deletion.
+    After 24h, content is hard-deleted by background worker.
+    
+    Requires 'jury:override' scope (curator role: trust_score >= 80, reputation >= 90%).
+    """
+    # Fetch deleted author
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one_or_none()
+    
+    if not author:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Author not found"
+        )
+    
+    if not author.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Author is not deleted"
+        )
+    
+    # Check 24-hour window
+    if author.deleted_at:
+        time_since_deletion = datetime.now(timezone.utc) - author.deleted_at
+        if time_since_deletion > timedelta(hours=24):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Recovery window expired. Content deleted more than 24 hours ago."
+            )
+    
+    # Restore author
+    old_data = serialize_entity(author)
+    author.is_deleted = False
+    author.deleted_at = None
+    
+    # Set is_public based on status
+    if author.status == ContentStatus.APPROVED:
+        author.is_public = True
+    else:
+        author.is_public = False
+    
+    author.version += 1
+    author.last_edited_by = current_user["user_id"]
+    author.last_edited_at = datetime.now(timezone.utc)
+    
+    # Record recovery in edit history
+    from helpers.edit_history import record_update
+    await record_update(
+        db=db,
+        entity_type="author",
+        entity_id=author.id,
+        user_id=current_user["user_id"],
+        old_data=old_data,
+        new_data=serialize_entity(author),
+        new_version=author.version,
+        old_version=author.version - 1,
+    )
+    
+    await db.commit()
+    
+    # Reload with books relationship to avoid lazy load issues
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    result = await db.execute(query)
+    author = result.scalar_one()
+    
+    return AuthorDetail.model_validate(author)
+
 
 # TODO integrate with reputation system in auth&user service,
 # reputation = approved_count_of_all_entities + 3/ total_count_of_all_entities + 3,
