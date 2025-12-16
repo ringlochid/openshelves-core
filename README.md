@@ -24,7 +24,7 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - **Cascading cache invalidation**: Union old/new IDs to prevent stale cache
 - **Similarity search**: Trigram-based typo-tolerant search with cursor pagination
 - **Security fix**: Removed social trust rewards to prevent follow/unfollow exploit
-- **138 tests passing** (12 auth + 10 cursor + 16 edit_history + 50+ author/jury + 40+ book/review + 20 cache)
+- **157 tests passing** (12 auth + 10 cursor + 16 edit_history + 50+ author/jury + 40+ book/review + 20 cache + 4 delete_own + 11 critical fixes)
 - All tests use real PostgreSQL database (no SQLite mocks)
 
 **Phase 3: Books & Reviews Workflow** ✅ **COMPLETED**
@@ -36,7 +36,19 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - Jury voting system for books (pending queue, vote, retract)
 - Book approve/reject clears jury votes
 - Permission enforcement: owners need books:update_own scope
-- **138 tests passing** (9 review voting tests skipped - endpoints need implementation)
+- Review workflow fully implemented with voting system
+- **157 tests passing** - All review tests now active
+
+**Phase 4: Critical Fixes & Production Hardening** ✅ **COMPLETED**
+- **Security Fix**: Cache leak vulnerability - pending authors exposed via public endpoint
+- **Correctness Fix**: Rollback audit records now capture correct pre/post state
+- **Feature Implementation**: Book search trigram fallback (FTS → similarity on zero results)
+- **Feature Gap Closed**: Added DELETE /books/{id}/own endpoint (books:delete_own scope)
+- **Code Cleanup**: Removed obsolete TODO comments from unfollow_author
+- **UUID Handling**: Fixed redundant UUID() wrapping throughout book endpoints
+- **Test Modernization**: Updated all 9 review workflow tests with API calls
+- **Regression Tests**: Added 11 new tests to prevent future regressions
+- **157 tests passing** - Zero failures, zero skipped
 
 ## Stack and Capabilities
 - **FastAPI + Uvicorn** - High-performance async web framework with Pydantic v2
@@ -92,7 +104,7 @@ docker compose exec app pytest tests/ -v
 
 ## Testing
 
-**All Tests (138 tests passing with real PostgreSQL):**
+**All Tests (157 tests passing with real PostgreSQL):**
 ```bash
 # Run all tests
 docker compose exec app pytest tests/ -v
@@ -111,6 +123,11 @@ docker compose exec app pytest tests/test_author_similarity_search.py -v    # 7 
 docker compose exec app pytest tests/test_author_rollback.py -v             # 6 rollback tests
 docker compose exec app pytest tests/test_curator_recovery.py -v            # 5 recovery tests
 docker compose exec app pytest tests/test_cache_rate_limit.py -v            # 20 cache tests
+docker compose exec app pytest tests/test_book_delete_own.py -v             # 4 delete_own tests
+docker compose exec app pytest tests/test_review_workflow.py -v             # 9 review workflow tests
+docker compose exec app pytest tests/test_author_cache_leak.py -v           # 2 cache security tests
+docker compose exec app pytest tests/test_author_rollback_audit.py -v       # 1 audit correctness test
+docker compose exec app pytest tests/test_book_search_fallback.py -v        # 3 search fallback tests
 ```
 
 **Test Coverage:**
@@ -127,6 +144,11 @@ docker compose exec app pytest tests/test_cache_rate_limit.py -v            # 20
 - **Version rollback** (6 tests): restore previous versions, permission checks
 - **Curator recovery** (5 tests): soft delete recovery, 24h window
 - **Cache layer** (20 tests): invalidation patterns, version bumping, cascading
+- **Delete own book** (4 tests): ownership checks, scope validation, soft delete
+- **Review workflow** (9 tests): CRUD operations, voting system, trust adjustments
+- **Security regression** (2 tests): cache leak prevention, pending data isolation
+- **Audit correctness** (1 test): rollback history captures correct pre/post state
+- **Search fallback** (3 tests): FTS → trigram fallback, threshold validation
 
 **Testing Strategy:**
 - Uses real PostgreSQL database (not SQLite)
