@@ -77,7 +77,7 @@ async def list_authors(
         # Use % operator for trigram matching (requires threshold met)
         search_filter = or_(
             Author.name.op("%")(search),
-            Author.email.op("%")(search) if search else False
+            Author.email.op("%")(search)
         )
         
         query = (

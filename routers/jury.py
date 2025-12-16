@@ -483,13 +483,10 @@ async def get_book_vote_status(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Get voting status and statistics for a pending book."""
-    from uuid import UUID
-    
     status = await get_vote_status(
         db=db,
         entity_type="book",
         entity_id=book_id,
-        user_id=UUID(current_user["user_id"]),
     )
     
     return {

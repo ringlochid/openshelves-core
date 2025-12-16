@@ -21,10 +21,10 @@ from schemas.book import (
     BookSortControl,
     SortField,
     SortDirection,
+    RollbackRequest,
 )
 from schemas.review import ReviewCreate, ReviewUpdate, ReviewVoteCreate
 from schemas.shared import ReviewRead
-from schemas.history import RollbackRequest
 from helpers.edit_history import (
     check_version_conflict,
     record_create,

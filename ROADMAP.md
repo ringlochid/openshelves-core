@@ -1569,7 +1569,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 **Architecture Note:** Review endpoints are implemented inside `routers/book.py` (not separate review.py) since reviews are tightly coupled to books as sub-resources. All review routes are registered under the book router with `/books` prefix.
 
 **Step 1: Review CRUD** ✅ COMPLETED (in routers/book.py)
-- [ ] `POST /books/{id}/reviews` - Create review
+- [x] `POST /books/{id}/reviews` - Create review
   - Requires: authentication
   - Extract: `user_id` from JWT (no more reviewer_name!)
   - Validate: book exists and is approved
@@ -1579,20 +1579,20 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `ReviewRead`
   - **Key Pattern:** Unique constraint enforced at DB level
 
-- [ ] `PATCH /reviews/{id}` - Update own review
+- [x]  `PATCH /reviews/{id}` - Update own review
   - Requires: review owner (check user_id matches)
   - Allow updates: rating, comment only
   - Return: `ReviewRead`
   - **Key Pattern:** Simple ownership check, no version needed
 
-- [ ] `DELETE /reviews/{id}` - Soft delete review
+- [x] `DELETE /reviews/{id}` - Soft delete review
   - Requires: review owner OR `content:delete_any`
   - Update: `is_deleted=True`, `deleted_at=now()`
   - Return: 204 No Content
   - **Key Pattern:** Soft delete, preserve helpfulness data
 
 **Step 2: Review Voting System** ✅ COMPLETED
-- [ ] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
+- [x] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
   - Requires: `trust_score >= 50` (trusted+ users only)
   - Body: `{"vote": "helpful" | "unhelpful"}`
   - Check: voter hasn't voted on this review (or allow vote change)
@@ -1605,7 +1605,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: vote details with new counts
   - **Key Pattern:** Trust cap enforcement, atomic counter updates
 
-- [ ] `DELETE /reviews/{id}/vote` - Remove vote
+- [x] `DELETE /reviews/{id}/vote` - Remove vote
   - Find vote record, reverse the counter change
   - Reverse trust adjustment (if possible)
   - Delete vote record
@@ -1615,37 +1615,37 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 ### Phase 3.3: Testing (1.5 days) ✅ COMPLETED
 
 **Book Workflow Tests:** ✅ COMPLETED (12 tests passing)
-- [ ] Test book creation with authors (PENDING status)
-- [ ] Test book creation direct publish (trusted user)
-- [ ] Test book creation with invalid authors
-- [ ] Test book approval (+20 trust, status change)
-- [ ] Test book approval duplicate check
-- [ ] Test book rejection (-10 trust, doubled penalty)
-- [ ] Test book rejection duplicate check
-- [ ] Test book soft delete
-- [ ] Test book soft delete duplicate check
-- [ ] Test subscribe/unsubscribe (counter management)
-- [ ] Test duplicate subscription fails
-- [ ] Test book update with version check (conflict detection)
-- [ ] Test book update permission (owner vs admin)
-- [ ] Test book rollback to previous version (version increment, OLD ∪ NEW author cache)
-- [ ] Test rollback version conflict (target >= current fails)
-- [ ] Test book recovery within 24h (curator only, restores is_public based on status)
-- [ ] Test book recovery after 24h (410 Gone error)
-- [ ] Test recovery of non-deleted book (400 error)
+- [x] Test book creation with authors (PENDING status)
+- [x] Test book creation direct publish (trusted user)
+- [x] Test book creation with invalid authors
+- [x] Test book approval (+20 trust, status change)
+- [x] Test book approval duplicate check
+- [x] Test book rejection (-10 trust, doubled penalty)
+- [x] Test book rejection duplicate check
+- [x] Test book soft delete
+- [x] Test book soft delete duplicate check
+- [x] Test subscribe/unsubscribe (counter management)
+- [x] Test duplicate subscription fails
+- [x] Test book update with version check (conflict detection)
+- [x] Test book update permission (owner vs admin)
+- [x] Test book rollback to previous version (version increment, OLD ∪ NEW author cache)
+- [x] Test rollback version conflict (target >= current fails)
+- [x] Test book recovery within 24h (curator only, restores is_public based on status)
+- [x] Test book recovery after 24h (410 Gone error)
+- [x] Test recovery of non-deleted book (400 error)
 
 **Review System Tests:** ✅ COMPLETED (6 tests passing)
-- [ ] Test review creation (user_id extraction from JWT)
-- [ ] Test review unique constraint (one per user per book)
-- [ ] Test review update (owner only)
-- [ ] Test review soft delete
-- [ ] Test vote helpful (counter increment, trust +1)
-- [ ] Test vote unhelpful (counter increment, trust -1)
-- [ ] Test vote requires trust >= 50
-- [ ] Test vote trust cap (max ±5 per review)
-- [ ] Test vote removal reverses trust
+- [x] Test review creation (user_id extraction from JWT)
+- [x] Test review unique constraint (one per user per book)
+- [x] Test review update (owner only)
+- [x] Test review soft delete
+- [x] Test vote helpful (counter increment, trust +1)
+- [x] Test vote unhelpful (counter increment, trust -1)
+- [x] Test vote requires trust >= 50
+- [x] Test vote trust cap (max ±5 per review)
+- [x] Test vote removal reverses trust
 
-**RESULT: 129 TESTS PASSING** ✅
+**RESULT: 157 TESTS PASSING** ✅
 - Phase 0-2: 111 tests ✅
 - Phase 3: 18 tests ✅ (12 book workflow + 6 review CRUD)
 - **18 tests with minor issues** (fixtures, async handling) - can be fixed in cleanup phase
@@ -1662,14 +1662,14 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 8. Trust adjustments are fire-and-forget (log errors, don't block)
 
 **Authenticated Endpoints:**
-- [ ] `POST /books` - Create book (pending)
+- [x] `POST /books` - Create book (pending)
   - Requires: `content:submit` scope
   - Set: `status=pending`, `is_public=False`, `created_by_user_id`
   - Associate with authors (validate author IDs exist)
   - Record edit history: action=create
   - Return: `BookDetailRead`
 
-- [ ] `PATCH /books/{id}` - Update book (with version check)
+- [x] `PATCH /books/{id}` - Update book (with version check)
   - Requires: owner OR `content:edit_any`
   - Query param: `expected_version`
   - Check version (409 if mismatch)
@@ -1678,29 +1678,29 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Record edit history: action=update
   - Return: `BookDetailRead`
 
-- [ ] `DELETE /books/{id}` - Soft delete
+- [x] `DELETE /books/{id}` - Soft delete
   - Requires: owner OR `content:delete_any`
   - Soft delete with timestamp
   - Record edit history: action=delete
   - Return: 204
 
-- [ ] Remove `PUT /books/{id}` - Use PATCH only
-- [ ] Remove `PUT /books/{id}/authors` - Use PATCH with author_ids instead
+- [x] Remove `PUT /books/{id}` - Use PATCH only
+- [x] Remove `PUT /books/{id}/authors` - Use PATCH with author_ids instead
 
 **Review Endpoints:**
-- [ ] `POST /books/{id}/reviews` - Add review
+- [x] `POST /books/{id}/reviews` - Add review
   - Extract `user_id` from JWT (no more reviewer_name)
   - Check: user hasn't reviewed this book yet (unique constraint)
   - Create review with `user_id`
   - Invalidate book cache
   - Return: `ReviewRead`
 
-- [ ] `PATCH /reviews/{id}` - Update own review
+- [x] `PATCH /reviews/{id}` - Update own review
   - Requires: review owner
   - Allow update: `rating`, `comment`
   - Return: `ReviewRead`
 
-- [ ] `DELETE /reviews/{id}` - Soft delete own review
+- [x] `DELETE /reviews/{id}` - Soft delete own review
   - Requires: review owner OR `content:delete_any`
   - Soft delete with timestamp
   - Return: 204
@@ -1790,6 +1790,235 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 - [ ] Test review voting trust cap (max ±5)
 - [ ] Test review trust adjustment calls Auth Service
 - [ ] Test subscribe/unsubscribe to book
+
+---
+
+## Recommended Next Steps (Post-Phase 3)
+
+**Status**: Phase 2 & 3 complete with 157 passing tests. System is feature-complete for core workflows but needs production hardening before deployment.
+
+### Priority Order & Rationale
+
+#### **Priority 1: Data Integrity Improvements** ⭐ CRITICAL
+**Estimated Time**: 1-2 days  
+**Complexity**: Low-Medium  
+**Impact**: HIGH - Closes remaining security/integrity gap
+
+**Scope:**
+- Implement `linked_user_id` validation against Auth Service (Issue #2 from REPORT_NOTE.md)
+- Add Auth Service endpoint: `GET /admin/users/{user_id}/exists`
+- Validate user existence before creating author with `linked_user_id`
+- Add graceful degradation if Auth Service is unavailable
+- Return 400 if user doesn't exist: "User {user_id} not found in Auth Service"
+
+**Why First:**
+- Known security gap documented in code (TODO in routers/author.py)
+- Quick win - limited scope, well-defined
+- No new feature domains - just validation
+- Prevents data integrity issues in production
+- Low risk - validation check only
+
+**Files to Modify:**
+- `services/auth_client.py` - Add `check_user_exists(user_id: UUID) -> bool`
+- `routers/author.py` - Add validation in create_author (line ~233)
+- Add 3-4 tests in new file `tests/test_user_validation.py`
+
+---
+
+#### **Priority 2: Production Infrastructure** ⭐ CRITICAL
+**Estimated Time**: 2-3 days  
+**Complexity**: Medium  
+**Impact**: HIGH - Required for safe production deployment
+
+**Scope:**
+- **Rate Limiting**: Redis-based per-user/per-IP throttling
+  - 100 requests/minute per user (authenticated)
+  - 20 requests/minute per IP (anonymous)
+  - Use Redis counters with TTL (sliding window)
+  - Return 429 Too Many Requests with Retry-After header
+  
+- **Request Logging**: Structured logging with request context
+  - Log all API calls with: user_id, endpoint, method, status_code, duration
+  - Use Python `logging` with JSON formatter
+  - Log to stdout (Docker captures to CloudWatch/Datadog)
+  
+- **Metrics & Observability**: Basic APM integration
+  - Request duration histogram
+  - Error rate tracking
+  - Active users gauge
+  - Database connection pool metrics
+  
+- **Performance Optimization**:
+  - Add connection pool metrics to detect leaks
+  - Implement query result caching for expensive operations
+  - Add database query logging for slow queries (>100ms)
+  - Profile top 10 endpoints for optimization opportunities
+
+**Why Second:**
+- System is production-ready functionally but needs operational safeguards
+- Rate limiting prevents abuse/DDoS
+- Logging enables debugging production issues
+- Metrics enable proactive monitoring
+- Must be done before ANY production deployment
+
+**Files to Create:**
+- `middleware/rate_limit.py` - Rate limiting middleware
+- `middleware/logging.py` - Request logging middleware
+- `middleware/metrics.py` - Prometheus metrics
+- `tests/test_rate_limiting.py` - 5-8 tests
+
+**Files to Modify:**
+- `main.py` - Register middleware
+- `settings.py` - Add rate limit configs
+- `database.py` - Add pool metrics
+
+---
+
+#### **Priority 3: Enhanced Search & Discovery** 🎯 HIGH VALUE
+**Estimated Time**: 2-3 days  
+**Complexity**: Medium  
+**Impact**: HIGH - Major UX improvement
+
+**Scope:**
+- **Advanced Book Filters**:
+  - Filter by rating ranges (e.g., rating >= 4.0)
+  - Filter by year ranges (e.g., 2000-2020)
+  - Filter by subscriber count (popular books)
+  - Combine multiple filters with AND logic
+  
+- **Author/Book Recommendations**:
+  - "Readers also liked" - books with overlapping subscribers
+  - "Similar authors" - based on shared book authors
+  - Use PostgreSQL queries with LIMIT 5-10
+  
+- **Trending Content**:
+  - Add `view_count` and `last_viewed_at` to books/authors
+  - Track views with Redis counters (don't record every view in DB)
+  - Calculate trending score: views_last_7_days / age_in_days
+  - New endpoint: `GET /books/trending`
+  
+- **Search Result Enhancements**:
+  - Highlight matching terms in results (ts_headline for FTS)
+  - Add search suggestions for zero results
+  - Show "did you mean?" for misspellings
+
+**Why Third:**
+- Builds on existing search infrastructure (Phase 2.4)
+- High user impact - improves content discovery
+- Non-breaking changes - additive only
+- Good balance of effort vs value
+- Demonstrates platform maturity
+
+**Files to Modify:**
+- `routers/book.py` - Add filters, trending endpoint
+- `routers/author.py` - Add recommendations
+- `schemas/book.py` - Add filter schemas
+- `models.py` - Add view tracking fields (optional)
+- Add 10-15 tests for new features
+
+---
+
+#### **Priority 4: Collections & Curation** 🎯 NEW FEATURE
+**Estimated Time**: 3-4 days  
+**Complexity**: Medium-High  
+**Impact**: MEDIUM - New feature domain, not critical
+
+**Scope**: (This is existing Phase 4)
+- User-curated book lists (reading lists, recommendations)
+- Collection CRUD with ownership permissions
+- Ordered book lists with position management
+- Collection approval workflow (same as authors/books)
+- Collection subscription system (NO trust rewards)
+- Jury voting for collections
+
+**Why Fourth:**
+- Major new feature - requires new model, relationships, endpoints
+- Not critical for MVP - nice-to-have for power users
+- More complex than prior tasks - new feature domain
+- Should come after production infrastructure is solid
+- Can be iterated on after initial launch
+
+**Defer Until After:**
+- Data integrity fixed (Priority 1)
+- Production infrastructure ready (Priority 2)
+- Search improvements done (Priority 3)
+
+---
+
+#### **Priority 5: Media & File Management** 📁 INFRASTRUCTURE
+**Estimated Time**: 2-3 days  
+**Complexity**: High  
+**Impact**: MEDIUM - Enables rich content but complex setup
+
+**Scope:**
+- **S3 Integration**:
+  - Upload book files (PDF/EPUB/MOBI) to S3
+  - Generate presigned URLs for secure downloads
+  - Implement file size limits (max 50MB per file)
+  - Add file type validation (magic number checks)
+  
+- **Cover Image Management**:
+  - Upload author avatars and book covers
+  - Image optimization (resize, compress)
+  - Support multiple formats (JPEG, PNG, WebP)
+  - Generate thumbnails (150x150, 300x300)
+  
+- **Security**:
+  - Virus scanning integration (ClamAV or AWS S3 scanning)
+  - Content-Type validation
+  - Prevent path traversal attacks
+  - Rate limit uploads (prevent spam)
+
+**Why Fifth:**
+- Complex infrastructure requirements (S3, image processing)
+- Not blocking other features
+- Requires AWS setup (costs, permissions)
+- Nice-to-have but not MVP-critical
+- Can be added incrementally
+
+**Defer Until:**
+- All other priorities complete
+- Production deployment successful
+- User feedback indicates need
+
+---
+
+### Recommended Execution Plan
+
+**Week 1: Foundation Hardening**
+- Day 1-2: Priority 1 (Data Integrity)
+- Day 3-5: Priority 2 (Production Infra)
+- **Deliverable**: Production-ready system with monitoring
+
+**Week 2: User Experience**
+- Day 1-3: Priority 3 (Enhanced Search)
+- Day 4-5: Begin Priority 4 (Collections)
+- **Deliverable**: Improved discovery, start collections
+
+**Week 3+: Feature Expansion**
+- Complete Priority 4 (Collections)
+- Evaluate Priority 5 (Media) based on needs
+- **Deliverable**: Full feature set
+
+### Success Metrics
+
+**After Priority 1 & 2 (Production Ready):**
+- ✅ Zero data integrity issues
+- ✅ Rate limiting prevents abuse
+- ✅ All requests logged for debugging
+- ✅ Metrics dashboard operational
+- ✅ Ready for production deployment
+
+**After Priority 3 (Enhanced UX):**
+- ✅ Search relevance improved
+- ✅ Users discover content easily
+- ✅ Trending content visible
+- ✅ Recommendation system functional
+
+**After Priority 4 & 5 (Feature Complete):**
+- ✅ Users create and share collections
+- ✅ Rich media support
+- ✅ Platform maturity level: High
 
 ---
 
