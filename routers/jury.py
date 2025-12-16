@@ -5,6 +5,7 @@ Implements community voting system for PENDING content.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database import get_async_db
 from cache import get_redis
@@ -110,12 +111,16 @@ async def get_pending_author_detail(
     cached = await cache.get_author(author_id, r)
     if cached and cached.get("status") == "PENDING":
         return AuthorDetail.model_validate(cached)
-    query = select(Author).where(
-        and_(
-            Author.id == author_id,
-            Author.status == ContentStatus.PENDING,
-            Author.is_deleted == False,
+    query = (
+        select(Author)
+        .where(
+            and_(
+                Author.id == author_id,
+                Author.status == ContentStatus.PENDING,
+                Author.is_deleted == False,
+            )
         )
+        .options(selectinload(Author.books))
     )
     
     result = await db.execute(query)

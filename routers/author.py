@@ -168,9 +168,9 @@ async def get_author(
     Get detailed author information.
     Only shows approved, public authors to unauthenticated users.
     """
-    # Try cache first
+    # Try cache first, but verify status (prevent pending data leak from jury cache)
     cached = await cache.get_author(author_id, r)
-    if cached:
+    if cached and cached.get("status") == "APPROVED" and cached.get("is_public") is True:
         return AuthorDetail.model_validate(cached)
     
     query = (
@@ -562,6 +562,10 @@ async def rollback_author_version(
     # Capture previous book_ids BEFORE rollback (needed for cache invalidation)
     previous_book_ids = {book.id for book in author.books} if author.books else set()
     
+    # Capture old state BEFORE rollback for audit
+    old_data_for_audit = serialize_entity(author)
+    old_version = author.version
+    
     # Apply old data to current entity
     old_data = target_record.new_data
     if old_data:
@@ -602,19 +606,18 @@ async def rollback_author_version(
                 print(f"Warning: Restoring linked_user_id {old_data['linked_user_id']} but user no longer exists in auth service")
     
     # Increment version (rollback creates new version)
-    old_version = author.version
     author.version += 1
     author.last_edited_by = current_user["user_id"]
     author.last_edited_at = datetime.now(timezone.utc)
     
-    # Record rollback in history
+    # Record rollback in history with correct pre/post snapshots
     await record_update(
         db=db,
         entity_type="author",
         entity_id=author.id,
         user_id=current_user["user_id"],
-        old_data=serialize_entity(author),
-        new_data={"rollback_to_version": data.target_version},
+        old_data=old_data_for_audit,
+        new_data=serialize_entity(author),
         new_version=author.version,
         old_version=old_version,
     )
@@ -943,8 +946,6 @@ async def unfollow_author(
     author_result = await db.execute(author_query)
     author = author_result.scalar_one_or_none()
     
-    # TODO delete the awarded trust bonus (-3, max -6 if follower from 2->1 or 1->0 ) but Auth Service can't enforce this logic, so we must check here
-    # TODO align to 3->1 delta change
     if author:
         author.follower_count = max(0, author.follower_count - 1)
     

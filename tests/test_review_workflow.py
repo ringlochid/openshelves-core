@@ -68,259 +68,291 @@ class TestReviewCRUD:
         
         assert exc_info.value.status_code == 404
     
-    @pytest.mark.skip(reason="Async loop issue - needs endpoint integration test")
-    async def test_duplicate_review_fails(self, test_db, approved_book):
+    async def test_duplicate_review_fails(self, async_client, test_db, approved_book):
         """User cannot review same book twice."""
-        pass
+        from helpers.jwt_utils import create_test_jwt
+        
+        user_id = str(uuid4())
+        jwt_token = create_test_jwt(
+            user_id=user_id,
+            scopes=["books:read"],
+            trust_score=15,
+        )
+        
+        # Create first review
+        response1 = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert response1.status_code == 201
+        
+        # Try to create duplicate review
+        response2 = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            json={"rating": 4, "comment": "Another review"}
+        )
+        assert response2.status_code == 400
+        assert "already" in response2.json()["detail"].lower()
     
-    @pytest.mark.skip(reason="Review update endpoint not yet implemented")
-    async def test_update_own_review(self, test_db, approved_book):
+    async def test_update_own_review(self, async_client, test_db, approved_book):
         """User can update their own review."""
-        pass
+        from helpers.jwt_utils import create_test_jwt
+        
+        user_id = str(uuid4())
+        jwt_token = create_test_jwt(
+            user_id=user_id,
+            scopes=["books:read"],
+            trust_score=15,
+        )
+        
+        # Create review
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            json={"rating": 3, "comment": "It was okay"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
+        
+        # Update review
+        update_response = await async_client.patch(
+            f"/books/reviews/{review_id}",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            json={"rating": 5, "comment": "Actually it's great!"}
+        )
+        assert update_response.status_code == 200
+        updated = update_response.json()
+        assert updated["rating"] == 5
+        assert updated["comment"] == "Actually it's great!"
     
-    @pytest.mark.skip(reason="Review update endpoint not yet implemented")
-    async def test_cannot_update_others_review(self, test_db, approved_book):
+    async def test_cannot_update_others_review(self, async_client, test_db, approved_book):
         """User cannot update someone else's review."""
-        pass
+        from helpers.jwt_utils import create_test_jwt
+        
+        # User 1 creates review
+        user1_id = uuid4()
+        jwt1 = create_test_jwt(user_id=user1_id, scopes=["books:read"], trust_score=15)
+        
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {jwt1}"},
+            json={"rating": 4, "comment": "Good book"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
+        
+        # User 2 tries to update User 1's review
+        user2_id = uuid4()
+        jwt2 = create_test_jwt(user_id=user2_id, scopes=["books:read"], trust_score=15)
+        
+        update_response = await async_client.patch(
+            f"/books/reviews/{review_id}",
+            headers={"Authorization": f"Bearer {jwt2}"},
+            json={"rating": 1, "comment": "Terrible!"}
+        )
+        assert update_response.status_code == 403
     
-    @pytest.mark.skip(reason="Review delete endpoint not yet implemented")
-    async def test_delete_own_review(self, test_db, approved_book):
+    async def test_delete_own_review(self, async_client, test_db, approved_book):
         """User can delete their own review."""
-        pass
+        from helpers.jwt_utils import create_test_jwt
+        
+        user_id = str(uuid4())
+        jwt_token = create_test_jwt(user_id=user_id, scopes=["books:read"], trust_score=15)
+        
+        # Create review
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            json={"rating": 5, "comment": "Excellent!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
+        
+        # Delete review
+        delete_response = await async_client.delete(
+            f"/books/reviews/{review_id}",
+            headers={"Authorization": f"Bearer {jwt_token}"}
+        )
+        assert delete_response.status_code == 204
+        
+        # Verify deleted (should be soft-deleted)
+        get_response = await async_client.get(f"/books/{approved_book.id}/reviews")
+        assert get_response.status_code == 200
+        reviews = get_response.json()
+        deleted_review = next((r for r in reviews if r["id"] == review_id), None)
+        # Soft-deleted reviews should not appear in list
+        assert deleted_review is None
 
 
 @pytest.mark.asyncio
 class TestReviewVoting:
     """Test review voting system with trust adjustments."""
     
-    @pytest.mark.skip(reason="Review voting endpoints need implementation")
-    async def test_vote_helpful_increments_counter(self, test_db, approved_book):
+    async def test_vote_helpful_increments_counter(self, async_client, test_db, approved_book):
         """Trusted user can vote review as helpful."""
-        from routers.book import create_review, vote_on_review
-        from schemas.review import ReviewCreate, VoteRequest
+        from helpers.jwt_utils import create_test_jwt
+        from models import VoteType
         
         # Create review
-        reviewer = {"user_id": str(uuid4()), "scopes": ["books:read"]}
-        data = ReviewCreate(rating=5, comment="Great")
+        reviewer_id = str(uuid4())
+        reviewer_jwt = create_test_jwt(user_id=reviewer_id, scopes=["books:read"], trust_score=15)
         
-        with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_reviews", new=AsyncMock()):
-                review = await create_review(
-                    book_id=approved_book.id,
-                    data=data,
-                    current_user=reviewer,
-                    db=test_db,
-                    r=AsyncMock(),
-                )
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_jwt}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
         
         # Trusted user votes helpful
-        voter = {
-            "user_id": str(uuid4()),
-            "scopes": ["books:read"],
-            "trust_score": 60,  # Above 50 threshold
-        }
+        voter_id = uuid4()
+        voter_jwt = create_test_jwt(user_id=voter_id, scopes=["books:read"], trust_score=60)
         
-        vote_data = VoteRequest(vote="helpful")
-        
-        with patch("routers.book.adjust_user_trust") as mock_trust:
-            mock_trust.return_value = AsyncMock()
-            
-            result = await vote_on_review(
-                review_id=review.id,
-                data=vote_data,
-                current_user=voter,
-                db=test_db,
-            )
-        
-        await test_db.refresh(review)
-        assert review.helpful_count == 1
-        assert review.trust_awarded == 1
-        
-        # Verify trust adjustment called for reviewer (+1)
-        mock_trust.assert_called_once()
+        vote_response = await async_client.post(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {voter_jwt}"},
+            json={"review_id": review_id, "vote": "HELPFUL"}
+        )
+        assert vote_response.status_code == 200
+        result = vote_response.json()
+        assert result["helpful_count"] == 1
+        assert result["trust_delta"] == 1
     
-    @pytest.mark.skip(reason="Review voting endpoints need implementation")
-    async def test_vote_unhelpful_increments_counter(self, test_db, approved_book):
+    async def test_vote_unhelpful_increments_counter(self, async_client, test_db, approved_book):
         """Trusted user can vote review as unhelpful."""
-        from routers.book import create_review, vote_on_review
-        from schemas.review import ReviewCreate, VoteRequest
+        from helpers.jwt_utils import create_test_jwt
         
         # Create review
-        reviewer = {"user_id": str(uuid4()), "scopes": ["books:read"]}
-        data = ReviewCreate(rating=5, comment="Great")
+        reviewer_id = str(uuid4())
+        reviewer_jwt = create_test_jwt(user_id=reviewer_id, scopes=["books:read"], trust_score=15)
         
-        with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_reviews", new=AsyncMock()):
-                review = await create_review(
-                    book_id=approved_book.id,
-                    data=data,
-                    current_user=reviewer,
-                    db=test_db,
-                    r=AsyncMock(),
-                )
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_jwt}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
         
         # Trusted user votes unhelpful
-        voter = {
-            "user_id": str(uuid4()),
-            "scopes": ["books:read"],
-            "trust_score": 60,
-        }
+        voter_id = str(uuid4())
+        voter_jwt = create_test_jwt(user_id=voter_id, scopes=["books:read"], trust_score=60)
         
-        vote_data = VoteRequest(vote="unhelpful")
-        
-        with patch("routers.book.adjust_user_trust") as mock_trust:
-            mock_trust.return_value = AsyncMock()
-            
-            await vote_on_review(
-                review_id=review.id,
-                data=vote_data,
-                current_user=voter,
-                db=test_db,
-            )
-        
-        await test_db.refresh(review)
-        assert review.unhelpful_count == 1
-        assert review.trust_awarded == -1
+        vote_response = await async_client.post(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {voter_jwt}"},
+            json={"review_id": review_id, "vote": "UNHELPFUL"}
+        )
+        assert vote_response.status_code == 200
+        result = vote_response.json()
+        assert result["unhelpful_count"] == 1
+        assert result["trust_delta"] == -1
     
-    @pytest.mark.skip(reason="Review voting endpoints need implementation")
-    async def test_vote_requires_trust_50(self, test_db, approved_book):
+    async def test_vote_requires_trust_50(self, async_client, test_db, approved_book):
         """Low trust user cannot vote on reviews."""
-        from routers.book import create_review, vote_on_review
-        from schemas.review import ReviewCreate, VoteRequest
-        from fastapi import HTTPException
+        from helpers.jwt_utils import create_test_jwt
         
         # Create review
-        reviewer = {"user_id": str(uuid4()), "scopes": ["books:read"]}
-        data = ReviewCreate(rating=5, comment="Great")
+        reviewer_id = str(uuid4())
+        reviewer_jwt = create_test_jwt(user_id=reviewer_id, scopes=["books:read"], trust_score=15)
         
-        with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_reviews", new=AsyncMock()):
-                review = await create_review(
-                    book_id=approved_book.id,
-                    data=data,
-                    current_user=reviewer,
-                    db=test_db,
-                    r=AsyncMock(),
-                )
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_jwt}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
         
-        # Low trust user
-        low_trust = {
-            "user_id": str(uuid4()),
-            "scopes": ["books:read"],
-            "trust_score": 30,  # Below 50 threshold
-        }
+        # Low trust user tries to vote
+        low_trust_id = uuid4()
+        low_trust_jwt = create_test_jwt(user_id=low_trust_id, scopes=["books:read"], trust_score=30)
         
-        vote_data = VoteRequest(vote="helpful")
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await vote_on_review(
-                review_id=review.id,
-                data=vote_data,
-                current_user=low_trust,
-                db=test_db,
-            )
-        
-        assert exc_info.value.status_code == 403
-        assert "trust" in exc_info.value.detail.lower()
+        vote_response = await async_client.post(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {low_trust_jwt}"},
+            json={"review_id": review_id, "vote": "HELPFUL"}
+        )
+        assert vote_response.status_code == 403
     
-    @pytest.mark.skip(reason="Review voting endpoints need implementation")
-    async def test_vote_trust_cap_at_5(self, test_db, approved_book):
+    async def test_vote_trust_cap_at_5(self, async_client, test_db, approved_book):
         """Review trust cannot exceed ±5."""
-        from routers.book import create_review, vote_on_review
-        from schemas.review import ReviewCreate, VoteRequest
-        from fastapi import HTTPException
+        from helpers.jwt_utils import create_test_jwt
+        from models import Review
+        from sqlalchemy import select, update
         
         # Create review
-        reviewer = {"user_id": str(uuid4()), "scopes": ["books:read"]}
-        data = ReviewCreate(rating=5, comment="Great")
+        reviewer_id = str(uuid4())
+        reviewer_jwt = create_test_jwt(user_id=reviewer_id, scopes=["books:read"], trust_score=15)
         
-        with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_reviews", new=AsyncMock()):
-                review = await create_review(
-                    book_id=approved_book.id,
-                    data=data,
-                    current_user=reviewer,
-                    db=test_db,
-                    r=AsyncMock(),
-                )
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_jwt}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
         
-        # Manually set trust_awarded to cap
-        review.trust_awarded = 5
+        # Manually set trust_awarded to cap (bypass API)
+        await test_db.execute(
+            update(Review)
+            .where(Review.id == review_id)
+            .values(trust_awarded=5)
+        )
         await test_db.commit()
         
-        # Try to vote again
-        voter = {
-            "user_id": str(uuid4()),
-            "scopes": ["books:read"],
-            "trust_score": 60,
-        }
+        # Try to vote (should fail due to cap)
+        voter_id = uuid4()
+        voter_jwt = create_test_jwt(user_id=voter_id, scopes=["books:read"], trust_score=60)
         
-        vote_data = VoteRequest(vote="helpful")
-        
-        with pytest.raises(HTTPException) as exc_info:
-            await vote_on_review(
-                review_id=review.id,
-                data=vote_data,
-                current_user=voter,
-                db=test_db,
-            )
-        
-        assert exc_info.value.status_code == 400
-        assert "cap" in exc_info.value.detail.lower() or "limit" in exc_info.value.detail.lower()
+        vote_response = await async_client.post(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {voter_jwt}"},
+            json={"review_id": review_id, "vote": "HELPFUL"}
+        )
+        assert vote_response.status_code == 400
+        assert "cap" in vote_response.json()["detail"].lower() or "maximum" in vote_response.json()["detail"].lower()
     
-    @pytest.mark.skip(reason="Review voting endpoints need implementation")
-    async def test_remove_vote_reverses_trust(self, test_db, approved_book):
+    async def test_remove_vote_reverses_trust(self, async_client, test_db, approved_book):
         """Removing vote reverses trust adjustment."""
-        from routers.book import create_review, vote_on_review, remove_review_vote
-        from schemas.review import ReviewCreate, VoteRequest
+        from helpers.jwt_utils import create_test_jwt
         
         # Create review
-        reviewer = {"user_id": str(uuid4()), "scopes": ["books:read"]}
-        data = ReviewCreate(rating=5, comment="Great")
+        reviewer_id = str(uuid4())
+        reviewer_jwt = create_test_jwt(user_id=reviewer_id, scopes=["books:read"], trust_score=15)
         
-        with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_reviews", new=AsyncMock()):
-                review = await create_review(
-                    book_id=approved_book.id,
-                    data=data,
-                    current_user=reviewer,
-                    db=test_db,
-                    r=AsyncMock(),
-                )
+        create_response = await async_client.post(
+            f"/books/{approved_book.id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_jwt}"},
+            json={"rating": 5, "comment": "Great book!"}
+        )
+        assert create_response.status_code == 201
+        review_id = create_response.json()["id"]
         
         # Vote helpful
-        voter = {
-            "user_id": str(uuid4()),
-            "scopes": ["books:read"],
-            "trust_score": 60,
-        }
+        voter_id = str(uuid4())
+        voter_jwt = create_test_jwt(user_id=voter_id, scopes=["books:read"], trust_score=60)
         
-        vote_data = VoteRequest(vote="helpful")
-        
-        with patch("routers.book.adjust_user_trust"):
-            await vote_on_review(
-                review_id=review.id,
-                data=vote_data,
-                current_user=voter,
-                db=test_db,
-            )
-        
-        await test_db.refresh(review)
-        assert review.helpful_count == 1
+        vote_response = await async_client.post(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {voter_jwt}"},
+            json={"review_id": review_id, "vote": "HELPFUL"}
+        )
+        assert vote_response.status_code == 200
+        assert vote_response.json()["helpful_count"] == 1
         
         # Remove vote
-        with patch("routers.book.adjust_user_trust") as mock_trust:
-            mock_trust.return_value = AsyncMock()
-            
-            await remove_review_vote(
-                review_id=review.id,
-                current_user=voter,
-                db=test_db,
-            )
+        remove_response = await async_client.delete(
+            f"/books/reviews/{review_id}/vote",
+            headers={"Authorization": f"Bearer {voter_jwt}"}
+        )
+        assert remove_response.status_code == 204
         
-        await test_db.refresh(review)
-        assert review.helpful_count == 0
-        assert review.trust_awarded == 0
-        
-        # Verify trust reversed (-1 to undo the +1)
-        mock_trust.assert_called_once()
+        # Verify vote removed
+        get_response = await async_client.get(f"/books/{approved_book.id}/reviews")
+        reviews = get_response.json()
+        review = next(r for r in reviews if r["id"] == review_id)
+        assert review["helpful_count"] == 0

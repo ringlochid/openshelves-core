@@ -149,6 +149,10 @@ async def cast_jury_vote(
             await _invalidate_entity_caches(db, entity_type, entity_id, entity, redis_client)
     
     await db.commit()
+
+    # If not auto-published, still invalidate jury queue caches so vote_score stays fresh
+    if redis_client and not auto_published:
+        await _invalidate_pending_vote_caches(entity_type, entity_id, redis_client)
     
     return {
         "vote_score": current_score,
@@ -331,6 +335,21 @@ async def _invalidate_entity_caches(db: AsyncSession, entity_type: str, entity_i
     elif entity_type == "collection":
         # TODO: Implement collection cache invalidation when collections are added
         pass
+
+
+async def _invalidate_pending_vote_caches(entity_type: str, entity_id: int, redis_client):
+    """Invalidate jury queue/list caches when a vote does not auto-publish."""
+    import cache
+
+    if entity_type == "author":
+        await cache.invalidate_entity("author", entity_id, redis_client)
+        await cache.bump_cache_version("jury:authors", redis_client)
+    elif entity_type == "book":
+        await cache.invalidate_entity("book", entity_id, redis_client)
+        await cache.bump_cache_version("jury:books", redis_client)
+    elif entity_type == "collection":
+        await cache.invalidate_entity("collection", entity_id, redis_client)
+        await cache.bump_cache_version("jury:collections", redis_client)
 
 
 def _get_entity_model(entity_type: str):

@@ -118,13 +118,32 @@ async def list_books(
         # Weighted scoring: 60% FTS, 25% title similarity, 15% author similarity
         total_score = 0.6 * fts_score + 0.25 * title_sim + 0.15 * author_sim
         
-        stmt = (
+        # Try FTS first
+        fts_stmt = (
             stmt
             .outerjoin(Book.authors)
             .group_by(Book.id)
             .add_columns(total_score.label("total_score"))
             .having(total_score > 0.01)  # Filter out irrelevant results
         )
+        
+        # Check if FTS returns results
+        fts_count_result = await db.execute(select(func.count()).select_from(fts_stmt.subquery()))
+        fts_count = fts_count_result.scalar()
+        
+        if fts_count == 0:
+            # Fallback to pure trigram similarity (no FTS threshold)
+            trigram_score = 0.6 * title_sim + 0.4 * author_sim
+            total_score = trigram_score  # Ensure ordering/cursor use trigram score
+            stmt = (
+                stmt
+                .outerjoin(Book.authors)
+                .group_by(Book.id)
+                .add_columns(trigram_score.label("total_score"))
+                .having(trigram_score > 0.1)  # Lower threshold for trigram
+            )
+        else:
+            stmt = fts_stmt
     
     # Apply sorting
     order_exprs = []
@@ -479,6 +498,74 @@ async def update_book(
     await cache.bump_cache_version("books:list", r)
     
     return BookDetail.model_validate(book)
+
+
+@router.delete("/{book_id}/own", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_own_book(
+    book_id: int,
+    current_user: dict = Depends(require_scope("books:delete_own")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    Delete own book (owner only).
+    Soft-deletes the book by setting is_deleted=True.
+    Requires 'books:delete_own' scope + ownership.
+    """
+    # Fetch book with authors
+    query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
+    result = await db.execute(query)
+    book = result.scalar_one_or_none()
+    
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book not found"
+        )
+    
+    # Check ownership
+    if book.created_by_user_id != current_user["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own books"
+        )
+    
+    if book.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Book is already deleted"
+        )
+    
+    # Save old data for history
+    old_data = serialize_entity(book)
+    old_version = book.version
+    
+    # Soft delete
+    book.is_deleted = True
+    book.deleted_at = datetime.now(timezone.utc)
+    book.is_public = False
+    book.version += 1
+    book.last_edited_by = current_user["user_id"]
+    book.last_edited_at = datetime.now(timezone.utc)
+    
+    # Record deletion in edit history
+    await record_delete(
+        db=db,
+        entity_type="book",
+        entity_id=book.id,
+        user_id=current_user["user_id"],
+        data=old_data,
+        version=old_version,
+    )
+    
+    await db.commit()
+    
+    # Invalidate caches - pass author_ids to avoid DB query
+    author_ids = [author.id for author in book.authors] if book.authors else []
+    for author_id in author_ids:
+        await cache.invalidate_author(author_id, r, book_ids=[book.id])
+    await cache.invalidate_book(book_id, r)
+    await cache.bump_cache_version("books:list", r)
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1053,7 +1140,7 @@ async def create_review(
         )
     
     # Check for duplicate review (unique constraint)
-    user_id = UUID(current_user["user_id"])
+    user_id = current_user["user_id"]  # Already UUID from auth dependency
     existing = await db.execute(
         select(Review).where(
             and_(
@@ -1114,7 +1201,7 @@ async def update_review(
         )
     
     # Check ownership
-    if review.user_id != UUID(current_user["user_id"]):
+    if review.user_id != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to edit this review"
@@ -1160,7 +1247,7 @@ async def delete_review(
     
     # Permission check
     user_scopes = current_user.get("scopes", [])
-    is_owner = review.user_id == UUID(current_user["user_id"])
+    is_owner = review.user_id == current_user["user_id"]
     can_delete_any = "content:delete_any" in user_scopes or "content:takedown" in user_scopes
     
     if not (is_owner or can_delete_any):
@@ -1213,7 +1300,7 @@ async def vote_on_review(
         )
     
     # Check if already voted
-    user_id = UUID(current_user["user_id"])
+    user_id = current_user["user_id"]  # Already UUID from auth dependency
     existing_vote = await db.execute(
         select(ReviewVote).where(
             and_(
@@ -1312,7 +1399,7 @@ async def remove_review_vote(
     Reverses the trust adjustment.
     """
     # Find vote
-    user_id = UUID(current_user["user_id"])
+    user_id = current_user["user_id"]  # Already UUID from auth dependency
     query = select(ReviewVote).where(
         and_(
             ReviewVote.review_id == review_id,
