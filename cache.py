@@ -97,11 +97,11 @@ def make_list_key(namespace: str, params: dict, version: int = 1) -> str:
 async def cache_entity(
     namespace: str,
     entity_id: int,
-    data: dict,
+    data: dict | list[dict],
     r: Redis | None = None,
     ttl: int = DEFAULT_TTL
 ):
-    """Cache a single entity (author, book, collection)."""
+    """Cache a single entity (author, book, collection) or list (reviews)."""
     r = r or await init_redis()
     key = make_cache_key(namespace, entity_id)
     await r.set(key, json.dumps(data), ex=ttl)
@@ -111,8 +111,8 @@ async def get_entity(
     namespace: str,
     entity_id: int,
     r: Redis | None = None
-) -> dict | None:
-    """Get cached entity."""
+) -> dict | list[dict] | None:
+    """Get cached entity or list."""
     r = r or await init_redis()
     key = make_cache_key(namespace, entity_id)
     raw = await r.get(key)
@@ -222,7 +222,9 @@ async def cache_author(author_id: int, data: dict, r: Redis | None = None):
 
 async def get_author(author_id: int, r: Redis | None = None) -> dict | None:
     """Get cached author."""
-    return await get_entity("author", author_id, r)
+    result = await get_entity("author", author_id, r)
+    # Type narrowing: authors are always dict, never list
+    return result if isinstance(result, dict) or result is None else None
 
 
 async def invalidate_author(author_id: int, r: Redis | None = None, book_ids: list[int] | None = None):
@@ -272,7 +274,9 @@ async def cache_book(book_id: int, data: dict, r: Redis | None = None):
 
 async def get_book(book_id: int, r: Redis | None = None) -> dict | None:
     """Get cached book."""
-    return await get_entity("book", book_id, r)
+    result = await get_entity("book", book_id, r)
+    # Type narrowing: books are always dict, never list
+    return result if isinstance(result, dict) or result is None else None
 
 
 async def invalidate_book(book_id: int, r: Redis | None = None, author_ids: list[int] | None = None):
@@ -317,7 +321,9 @@ async def cache_collection(collection_id: int, data: dict, r: Redis | None = Non
 
 async def get_collection(collection_id: int, r: Redis | None = None) -> dict | None:
     """Get cached collection."""
-    return await get_entity("collection", collection_id, r)
+    result = await get_entity("collection", collection_id, r)
+    # Type narrowing: collections are always dict, never list
+    return result if isinstance(result, dict) or result is None else None
 
 
 async def invalidate_collection(collection_id: int, r: Redis | None = None):
@@ -338,7 +344,9 @@ async def cache_reviews(book_id: int, data: list[dict], r: Redis | None = None):
 
 async def get_reviews(book_id: int, r: Redis | None = None) -> list[dict] | None:
     """Get cached reviews for a book."""
-    return await get_entity("reviews", book_id, r)
+    result = await get_entity("reviews", book_id, r)
+    # Type narrowing: reviews are always list, never single dict
+    return result if isinstance(result, list) or result is None else None
 
 
 async def invalidate_reviews(book_id: int, r: Redis | None = None):

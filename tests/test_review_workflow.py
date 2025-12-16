@@ -296,15 +296,15 @@ class TestReviewVoting:
         assert create_response.status_code == 201
         review_id = create_response.json()["id"]
         
-        # Manually set trust_awarded to cap (bypass API)
+        # Manually set helpful_count to 5 to reach cap (bypass API)
         await test_db.execute(
             update(Review)
             .where(Review.id == review_id)
-            .values(trust_awarded=5)
+            .values(helpful_count=5, unhelpful_count=0, trust_awarded=5)
         )
         await test_db.commit()
         
-        # Try to vote (should fail due to cap)
+        # Vote should succeed even at cap (new behavior: votes always work)
         voter_id = uuid4()
         voter_jwt = create_test_jwt(user_id=voter_id, scopes=["books:read"], trust_score=60)
         
@@ -313,8 +313,19 @@ class TestReviewVoting:
             headers={"Authorization": f"Bearer {voter_jwt}"},
             json={"review_id": review_id, "vote": "HELPFUL"}
         )
-        assert vote_response.status_code == 400
-        assert "cap" in vote_response.json()["detail"].lower() or "maximum" in vote_response.json()["detail"].lower()
+        assert vote_response.status_code == 200
+        
+        # Trust should remain capped at 5 (6 helpful - 0 unhelpful = 6, capped to 5)
+        data = vote_response.json()
+        assert data["helpful_count"] == 6
+        assert data["unhelpful_count"] == 0
+        assert data["trust_delta"] == 0  # No trust change because already at cap
+        
+        # Verify trust_awarded stayed at cap
+        query = select(Review).where(Review.id == review_id)
+        result = await test_db.execute(query)
+        review = result.scalar_one()
+        assert review.trust_awarded == 5  # Capped at 5 even with 6 helpful votes
     
     async def test_remove_vote_reverses_trust(self, async_client, test_db, approved_book):
         """Removing vote reverses trust adjustment."""

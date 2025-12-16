@@ -263,11 +263,22 @@ async def get_book(
 async def get_book_reviews(
     book_id: int,
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Get all reviews for a book, ordered by helpfulness.
     Returns empty list if book not found (not 404).
+    
+    Cached for 5 minutes. Invalidated when:
+    - Review is created, updated, or deleted
+    - Review votes change (helpful/unhelpful counts)
     """
+    # Try cache first
+    cached = await cache.get_reviews(book_id, r)
+    if cached is not None:
+        return [ReviewRead.model_validate(review) for review in cached]
+    
+    # Query database
     query = (
         select(Review)
         .where(
@@ -281,6 +292,10 @@ async def get_book_reviews(
     
     result = await db.execute(query)
     reviews = result.scalars().all()
+    
+    # Cache the result
+    reviews_data = [ReviewRead.model_validate(r).model_dump(mode="json") for r in reviews]
+    await cache.cache_reviews(book_id, reviews_data, r)
     
     return [ReviewRead.model_validate(r) for r in reviews]
 
@@ -357,7 +372,11 @@ async def create_book(
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
     
-    # Invalidate caches
+    # Cache the newly created book for immediate reads
+    book_dict = BookDetail.model_validate(book).model_dump(mode="json")
+    await cache.cache_book(book.id, book_dict, r)
+    
+    # Invalidate list caches
     await cache.bump_cache_version("books:list", r)
     for author in author_objs:
         await cache.invalidate_author(author.id, r, book_ids=[book.id])
@@ -1311,6 +1330,9 @@ async def vote_on_review(
     )
     existing = existing_vote.scalar_one_or_none()
     
+    # Store old trust value for calculating actual change
+    old_trust_awarded = review.trust_awarded
+    
     if existing:
         # Vote change logic
         if existing.vote == data.vote:
@@ -1325,11 +1347,9 @@ async def vote_on_review(
         if existing.vote == VoteType.HELPFUL:
             review.helpful_count -= 1
             review.unhelpful_count += 1
-            delta = -2  # -1 to reverse, -1 for unhelpful
         else:
             review.unhelpful_count -= 1
             review.helpful_count += 1
-            delta = 2  # +1 to reverse, +1 for helpful
         
         existing.vote = data.vote  # VoteType enum from schema
     else:
@@ -1343,38 +1363,38 @@ async def vote_on_review(
         
         if data.vote == VoteType.HELPFUL:
             review.helpful_count += 1
-            delta = 1
         else:
             review.unhelpful_count += 1
-            delta = -1
     
-    # Check trust cap (±5 per review)
-    if abs(review.trust_awarded + delta) > 5:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Review has reached maximum trust adjustment (±5)"
-        )
-    
-    review.trust_awarded += delta
-    
+    # Commit vote count changes first
     await db.commit()
     await db.refresh(review)
     
-    # Award trust to reviewer
-    try:
-        from services.auth_client import auth_service_client
-        await auth_service_client.adjust_user_trust(
-            user_id=review.user_id,
-            delta=delta,
-            reason=f"Review voted {'helpful' if delta > 0 else 'unhelpful'}",
-            metadata={
-                "review_id": review_id,
-                "book_id": review.book_id,
-                "voter_id": str(user_id),
-            }
-        )
-    except Exception as e:
-        print(f"Warning: Failed to adjust reviewer trust: {e}")
+    # Calculate trust from vote balance (helpful - unhelpful), capped at ±5
+    new_trust_awarded = max(-5, min(5, review.helpful_count - review.unhelpful_count))
+    delta = new_trust_awarded - old_trust_awarded
+    
+    # Update trust_awarded if it changed
+    if delta != 0:
+        review.trust_awarded = new_trust_awarded
+        await db.commit()
+        await db.refresh(review)
+        
+        # Award trust to reviewer
+        try:
+            from services.auth_client import auth_service_client
+            await auth_service_client.adjust_user_trust(
+                user_id=review.user_id,
+                delta=delta,
+                reason=f"Review voted {'helpful' if delta > 0 else 'unhelpful'}",
+                metadata={
+                    "review_id": review_id,
+                    "book_id": review.book_id,
+                    "voter_id": str(user_id),
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Failed to adjust reviewer trust: {e}")
     
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
@@ -1426,35 +1446,47 @@ async def remove_review_vote(
             detail="Review not found"
         )
     
-    # Reverse vote
+    # Store old trust value for calculating actual change
+    old_trust_awarded = review.trust_awarded
+    
+    # Reverse vote count
     if vote.vote == VoteType.HELPFUL:
         review.helpful_count = max(0, review.helpful_count - 1)
-        delta = -1
     else:
         review.unhelpful_count = max(0, review.unhelpful_count - 1)
-        delta = 1
-    
-    review.trust_awarded += delta
     
     # Delete vote
     await db.delete(vote)
-    await db.commit()
     
-    # Reverse trust adjustment
-    try:
-        from services.auth_client import auth_service_client
-        await auth_service_client.adjust_user_trust(
-            user_id=review.user_id,
-            delta=delta,
-            reason="Review vote removed",
-            metadata={
-                "review_id": review_id,
-                "book_id": review.book_id,
-                "voter_id": str(user_id),
-            }
-        )
-    except Exception as e:
-        print(f"Warning: Failed to reverse reviewer trust: {e}")
+    # Commit vote removal first
+    await db.commit()
+    await db.refresh(review)
+    
+    # Recalculate trust from vote balance (helpful - unhelpful), capped at ±5
+    new_trust_awarded = max(-5, min(5, review.helpful_count - review.unhelpful_count))
+    delta = new_trust_awarded - old_trust_awarded
+    
+    # Update trust_awarded if it changed
+    if delta != 0:
+        review.trust_awarded = new_trust_awarded
+        await db.commit()
+        await db.refresh(review)
+        
+        # Adjust reviewer trust
+        try:
+            from services.auth_client import auth_service_client
+            await auth_service_client.adjust_user_trust(
+                user_id=review.user_id,
+                delta=delta,
+                reason="Review vote removed",
+                metadata={
+                    "review_id": review_id,
+                    "book_id": review.book_id,
+                    "voter_id": str(user_id),
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Failed to reverse reviewer trust: {e}")
     
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
