@@ -1,6 +1,10 @@
+"""
+Simplified Redis cache layer for Library Service.
+Handles caching of authors, books, and lists with automatic invalidation.
+"""
 import hashlib
 import json
-from typing import Any, Iterable
+from typing import Any
 
 from fastapi import Request
 from redis import asyncio as aioredis
@@ -11,23 +15,16 @@ Redis = aioredis.Redis
 from_url = aioredis.from_url
 
 _redis: Redis | None = None
+DEFAULT_TTL = settings.DEFAULT_CACHE_TTL  # 300 seconds (5 minutes)
 VERSION_KEY_PREFIX = "cache:version:"
-DEFAULT_TTL = settings.DEFAULT_CACHE_TTL
 
 
-async def get_cache_version(name: str, r: Redis | None = None) -> int:
-    r = r or await init_redis()
-    raw = await r.get(f"{VERSION_KEY_PREFIX}{name}")
-    return int(raw) if raw is not None else 1
-
-
-async def bump_cache_version(name: str, r: Redis | None = None) -> int:
-    r = r or await init_redis()
-    return int(await r.incr(f"{VERSION_KEY_PREFIX}{name}"))
-
+# ========================================
+# REDIS CONNECTION MANAGEMENT
+# ========================================
 
 async def init_redis() -> Redis:
-    """Create a single async Redis client for the process."""
+    """Initialize singleton Redis client."""
     global _redis
     if _redis is None:
         _redis = from_url(
@@ -38,174 +35,312 @@ async def init_redis() -> Redis:
 
 
 async def close_redis():
+    """Close Redis connection."""
     global _redis
     if _redis is not None:
-        await _redis.close()
+        await _redis.aclose()
         _redis = None
 
 
 async def get_redis(request: Request) -> Redis:
-    """FastAPI dependency: return app-scoped Redis client."""
+    """FastAPI dependency: return app-scoped Redis client from lifespan."""
     redis_client = getattr(request.app.state, "redis", None)
     if redis_client is None:
+        # Fallback: initialize if not set (shouldn't happen in production)
         redis_client = await init_redis()
         request.app.state.redis = redis_client
     return redis_client
 
 
-def normalize_params(params: dict) -> tuple[dict, str]:
+# ========================================
+# CACHE VERSION MANAGEMENT
+# ========================================
+
+async def get_cache_version(name: str, r: Redis | None = None) -> int:
+    """Get current cache version for a namespace."""
+    r = r or await init_redis()
+    raw = await r.get(f"{VERSION_KEY_PREFIX}{name}")
+    return int(raw) if raw is not None else 1
+
+
+async def bump_cache_version(name: str, r: Redis | None = None) -> int:
+    """
+    Increment cache version to invalidate all keys in a namespace.
+    More efficient than deleting individual keys.
+    """
+    r = r or await init_redis()
+    return int(await r.incr(f"{VERSION_KEY_PREFIX}{name}"))
+
+
+# ========================================
+# CACHE KEY GENERATION
+# ========================================
+
+def make_cache_key(namespace: str, identifier: str | int) -> str:
+    """Generate cache key for a single entity."""
+    return f"{namespace}:{identifier}"
+
+
+def make_list_key(namespace: str, params: dict, version: int = 1) -> str:
+    """Generate cache key for a list query with params."""
+    # Normalize params: remove None values, sort keys
     clean = {k: v for k, v in params.items() if v is not None}
     payload = json.dumps(clean, sort_keys=True, separators=(",", ":"))
-    return clean, payload
-
-
-def make_list_key(prefix: str, params: dict, version: int = 1) -> str:
-    _, payload = normalize_params(params)
-    h = hashlib.sha1(payload.encode()).hexdigest()[:16]  # trim to 16
-    return f"{prefix}:v{version}:{h}"
-
-
-def make_list_key_with_payload(
-    prefix: str, params: dict, version: int = 1
-) -> tuple[str, str]:
-    clean, payload = normalize_params(params)
     h = hashlib.sha1(payload.encode()).hexdigest()[:16]
-    return f"{prefix}:v{version}:{h}", payload
+    return f"{namespace}:v{version}:{h}"
 
 
-async def make_books_list_key(
-    params: dict, version: int | None = None, r: Redis | None = None
+# ========================================
+# ENTITY CACHING (Author, Book, Collection)
+# ========================================
+
+async def cache_entity(
+    namespace: str,
+    entity_id: int,
+    data: dict,
+    r: Redis | None = None,
+    ttl: int = DEFAULT_TTL
 ):
-    if version is None:
-        version = await get_cache_version("books:list", r)
-    return make_list_key_with_payload("books:list", params, version)
-
-
-async def make_authors_list_key(
-    params: dict, version: int | None = None, r: Redis | None = None
-) -> tuple[str, str]:
-    if version is None:
-        version = await get_cache_version("authors:list", r)
-    return make_list_key_with_payload("authors:list", params, version)
-
-
-def make_book_key(book_id: int) -> str:
-    return f"book:{book_id}"
-
-
-def make_author_key(author_id: int) -> str:
-    return f"author:{author_id}"
-
-
-def make_author_books_key(author_id: int) -> str:
-    return f"author:{author_id}:books"
-
-
-def make_reviews_key(book_id: int) -> str:
-    return f"book:{book_id}:reviews"
-
-
-async def cache_book(
-    book_id: int, book_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
-):
+    """Cache a single entity (author, book, collection)."""
     r = r or await init_redis()
-    await r.set(make_book_key(book_id), json.dumps(book_data), ex=ttl)
-
-
-async def get_book(book_id: int, r: Redis | None = None) -> dict | None:
-    r = r or await init_redis()
-    raw = await r.get(make_book_key(book_id))
-    return json.loads(raw) if raw else None
-
-
-async def cache_author(
-    author_id: int, author_data: dict, r: Redis | None = None, ttl: int = DEFAULT_TTL
-):
-    r = r or await init_redis()
-    await r.set(make_author_key(author_id), json.dumps(author_data), ex=ttl)
-
-
-async def get_author(author_id: int, r: Redis | None = None) -> dict | None:
-    r = r or await init_redis()
-    raw = await r.get(make_author_key(author_id))
-    return json.loads(raw) if raw else None
-
-
-async def cache_list(
-    key: str, data: Any, r: Redis | None = None, ttl: int = DEFAULT_TTL
-):
-    r = r or await init_redis()
+    key = make_cache_key(namespace, entity_id)
     await r.set(key, json.dumps(data), ex=ttl)
 
 
-async def get_list(key: str, r: Redis | None = None) -> Any | None:
+async def get_entity(
+    namespace: str,
+    entity_id: int,
+    r: Redis | None = None
+) -> dict | None:
+    """Get cached entity."""
     r = r or await init_redis()
+    key = make_cache_key(namespace, entity_id)
     raw = await r.get(key)
     return json.loads(raw) if raw else None
 
 
-async def cache_list_with_params(
-    key: str,
+async def invalidate_entity(
+    namespace: str,
+    entity_id: int,
+    r: Redis | None = None
+):
+    """Invalidate a single entity cache."""
+    r = r or await init_redis()
+    key = make_cache_key(namespace, entity_id)
+    await r.delete(key)
+
+
+# ========================================
+# LIST CACHING (with versioning)
+# ========================================
+
+async def cache_list(
+    namespace: str,
+    params: dict,
     data: Any,
-    params_payload: str,
+    version: int | None = None,
     r: Redis | None = None,
-    ttl: int = DEFAULT_TTL,
+    ttl: int = DEFAULT_TTL
 ):
-    """Store list data alongside normalized params to guard against collisions."""
-    await cache_list(key, {"data": data, "_params": params_payload}, r=r, ttl=ttl)
+    """Cache a list query result."""
+    r = r or await init_redis()
+    if version is None:
+        version = await get_cache_version(namespace, r)
+    
+    key = make_list_key(namespace, params, version)
+    await r.set(key, json.dumps(data), ex=ttl)
 
 
-async def get_list_with_params(
-    key: str, expected_params_payload: str, r: Redis | None = None
+async def get_list(
+    namespace: str,
+    params: dict,
+    version: int | None = None,
+    r: Redis | None = None
 ) -> Any | None:
-    """Return cached list only if params match; otherwise treat as miss."""
-    cached = await get_list(key, r=r)
-    if isinstance(cached, dict) and cached.get("_params") == expected_params_payload:
-        return cached.get("data")
-    return None
-
-
-async def link_book_to_authors(
-    book_id: int, author_ids: Iterable[int], r: Redis | None = None
-):
+    """Get cached list query result."""
     r = r or await init_redis()
-    for aid in author_ids:
-        await r.sadd(make_author_books_key(aid), book_id)
+    if version is None:
+        version = await get_cache_version(namespace, r)
+    
+    key = make_list_key(namespace, params, version)
+    raw = await r.get(key)
+    return json.loads(raw) if raw else None
 
 
-async def get_books_for_author(author_id: int, r: Redis | None = None) -> set[int]:
+# ========================================
+# RELATIONSHIP HELPERS (for cascading invalidation)
+# ========================================
+
+async def get_author_book_ids(author_id: int) -> list[int]:
+    """
+    Get IDs of books associated with an author.
+    Used for cascading cache invalidation.
+    """
+    from database import AsyncSessionLocal
+    from models import Author
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    
+    async with AsyncSessionLocal() as db:
+        query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+        result = await db.execute(query)
+        author = result.scalar_one_or_none()
+        
+        if author and author.books:
+            return [book.id for book in author.books]
+        return []
+
+
+async def get_book_author_ids(book_id: int) -> list[int]:
+    """
+    Get IDs of authors associated with a book.
+    Used for cascading cache invalidation.
+    """
+    from database import AsyncSessionLocal
+    from models import Book
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    
+    async with AsyncSessionLocal() as db:
+        query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
+        result = await db.execute(query)
+        book = result.scalar_one_or_none()
+        
+        if book and book.authors:
+            return [author.id for author in book.authors]
+        return []
+
+
+# ========================================
+# AUTHOR CACHING
+# ========================================
+
+async def cache_author(author_id: int, data: dict, r: Redis | None = None):
+    """Cache author entity."""
+    await cache_entity("author", author_id, data, r)
+
+
+async def get_author(author_id: int, r: Redis | None = None) -> dict | None:
+    """Get cached author."""
+    return await get_entity("author", author_id, r)
+
+
+async def invalidate_author(author_id: int, r: Redis | None = None, book_ids: list[int] | None = None):
+    """
+    Invalidate author cache and all lists containing authors.
+    Also invalidates related books (cascading invalidation).
+    
+    Bumps version to invalidate: GET /authors, GET /jury/authors
+    
+    Args:
+        author_id: ID of author to invalidate
+        r: Redis connection (optional)
+        book_ids: List of related book IDs (optional, will query DB if not provided)
+    """
     r = r or await init_redis()
-    return {int(bid) for bid in await r.smembers(make_author_books_key(author_id))}
+    
+    # Invalidate author entity
+    await invalidate_entity("author", author_id, r)
+    
+    # Invalidate author lists
+    await bump_cache_version("authors:list", r)
+    await bump_cache_version("jury:authors", r)
+    
+    # Cascade: invalidate related books (books show author info in detail view)
+    if book_ids is None:
+        book_ids = await get_author_book_ids(author_id)
+    
+    for book_id in book_ids:
+        await invalidate_entity("book", book_id, r)
 
 
-async def invalidate_book(book_id: int, r: Redis | None = None):
+async def invalidate_author_follows(author_id: int, r: Redis | None = None):
+    """Invalidate follow-related caches for an author."""
     r = r or await init_redis()
-    # In cluster mode, delete keys individually to avoid CROSSSLOT on multi-key DEL.
-    for key in (
-        make_book_key(book_id),
-        make_reviews_key(book_id),
-        f"book:{book_id}:authors",
-    ):
-        await r.delete(key)
+    # Invalidate author detail (includes follower_count)
+    await invalidate_entity("author", author_id, r)
 
 
-async def invalidate_author(
-    author_id: int, r: Redis | None = None, book_ids: Iterable[int] | None = None
-):
+# ========================================
+# BOOK CACHING
+# ========================================
+
+async def cache_book(book_id: int, data: dict, r: Redis | None = None):
+    """Cache book entity."""
+    await cache_entity("book", book_id, data, r)
+
+
+async def get_book(book_id: int, r: Redis | None = None) -> dict | None:
+    """Get cached book."""
+    return await get_entity("book", book_id, r)
+
+
+async def invalidate_book(book_id: int, r: Redis | None = None, author_ids: list[int] | None = None):
+    """
+    Invalidate book cache and all lists containing books.
+    Also invalidates related authors and reviews (cascading invalidation).
+    
+    Bumps version to invalidate: GET /books, GET /authors/{id}/books
+    
+    Args:
+        book_id: ID of book to invalidate
+        r: Redis connection (optional)
+        author_ids: List of related author IDs (optional, will query DB if not provided)
+    """
     r = r or await init_redis()
-    await r.delete(make_author_key(author_id))
-    author_books_key = make_author_books_key(author_id)
-    related_book_ids = {int(bid) for bid in book_ids} if book_ids else set()
-    if not related_book_ids:
-        related_book_ids = {int(bid) for bid in await r.smembers(author_books_key)}
+    
+    # Invalidate book entity
+    await invalidate_entity("book", book_id, r)
+    
+    # Invalidate book lists
+    await bump_cache_version("books:list", r)
+    
+    # Cascade: invalidate related authors (author detail shows book list)
+    if author_ids is None:
+        author_ids = await get_book_author_ids(book_id)
+    
+    for author_id in author_ids:
+        await invalidate_entity("author", author_id, r)
+    
+    # Cascade: invalidate book reviews
+    await invalidate_entity("reviews", book_id, r)
 
-    if related_book_ids:
-        keys_to_delete = []
-        for bid in related_book_ids:
-            keys_to_delete.append(make_book_key(bid))
-            keys_to_delete.append(make_reviews_key(bid))
-        # Delete keys one by one to avoid Redis cluster cross-slot errors.
-        for key in keys_to_delete:
-            await r.delete(key)
 
-    await r.delete(author_books_key)
+# ========================================
+# COLLECTION CACHING
+# ========================================
+
+async def cache_collection(collection_id: int, data: dict, r: Redis | None = None):
+    """Cache collection entity."""
+    await cache_entity("collection", collection_id, data, r)
+
+
+async def get_collection(collection_id: int, r: Redis | None = None) -> dict | None:
+    """Get cached collection."""
+    return await get_entity("collection", collection_id, r)
+
+
+async def invalidate_collection(collection_id: int, r: Redis | None = None):
+    """Invalidate collection cache and lists."""
+    r = r or await init_redis()
+    await invalidate_entity("collection", collection_id, r)
+    await bump_cache_version("collections:list", r)
+
+
+# ========================================
+# REVIEW CACHING
+# ========================================
+
+async def cache_reviews(book_id: int, data: list[dict], r: Redis | None = None):
+    """Cache reviews for a book."""
+    await cache_entity("reviews", book_id, data, r)
+
+
+async def get_reviews(book_id: int, r: Redis | None = None) -> list[dict] | None:
+    """Get cached reviews for a book."""
+    return await get_entity("reviews", book_id, r)
+
+
+async def invalidate_reviews(book_id: int, r: Redis | None = None):
+    """Invalidate reviews cache for a book."""
+    await invalidate_entity("reviews", book_id, r)

@@ -254,7 +254,24 @@ async def adjust_trust_for_social_bonus(
     entity_id: int,
 ) -> dict:
     """
-    Adjust trust score for social engagement (follows/subscriptions).
+    ⚠️ DEPRECATED - DO NOT USE ⚠️
+    
+    This function is kept for reference only and should NEVER be called.
+    
+    SECURITY DECISION (Phase 2.4):
+    Social engagement trust rewards have been REMOVED to prevent exploit loops.
+    Users could repeatedly follow/unfollow or subscribe/unsubscribe to farm
+    unlimited trust points.
+    
+    Trust is now earned ONLY through:
+    - Content approval (+10 for authors/collections, +20 for books)
+    - Review helpfulness voting (±1 per vote, max ±5 per review)
+    
+    If you need to award trust, use:
+    - adjust_trust_for_approval() for content approval
+    - adjust_trust_for_rejection() for content rejection
+    
+    Original behavior (REMOVED):
     +3 per action, capped at +6 per entity by Auth Service.
     
     Args:
@@ -264,20 +281,26 @@ async def adjust_trust_for_social_bonus(
         entity_id: Entity's ID
         
     Returns:
-        Auth Service response
+        Error indicating this function should not be used
     """
-    reason = f"{entity_type.capitalize()} {action}ed"
-    metadata = {
-        "entity_type": entity_type,
-        "entity_id": entity_id,
-        "action": action,
-        "bonus_type": "social_engagement",
-    }
+    raise RuntimeError(
+        "adjust_trust_for_social_bonus() is DEPRECATED and should not be called. "
+        "Social engagement trust rewards were removed in Phase 2.4 to prevent exploit loops."
+    )
     
-    return await auth_service_client.adjust_user_trust(
-        user_id=user_id,
-        delta=3,
-        reason=reason,
+    # Old implementation (DO NOT RESTORE):
+    # reason = f"{entity_type.capitalize()} {action}ed"
+    # metadata = {
+    #     "entity_type": entity_type,
+    #     "entity_id": entity_id,
+    #     "action": action,
+    #     "bonus_type": "social_engagement",
+    # }
+    # 
+    # return await auth_service_client.adjust_user_trust(
+    #     user_id=user_id,
+    #     delta=3,
+    #     reason=reason,
         metadata=metadata,
     )
 

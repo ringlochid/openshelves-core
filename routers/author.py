@@ -30,7 +30,10 @@ from helpers.edit_history import (
     serialize_entity,
 )
 from helpers.jury import clear_jury_votes
-from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection, adjust_trust_for_social_bonus
+from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection
+# NOTE: adjust_trust_for_social_bonus removed - social trust rewards deprecated in Phase 2.4
+import cache
+from cache import Redis
 
 
 router = APIRouter(prefix="/authors", tags=["Authors"])
@@ -159,11 +162,17 @@ async def list_authors(
 async def get_author(
     author_id: int,
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Get detailed author information.
     Only shows approved, public authors to unauthenticated users.
     """
+    # Try cache first
+    cached = await cache.get_author(author_id, r)
+    if cached:
+        return AuthorDetail.model_validate(cached)
+    
     query = (
         select(Author)
         .where(
@@ -185,6 +194,10 @@ async def get_author(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Author not found"
         )
+    
+    # Cache the result
+    author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
+    await cache.cache_author(author_id, author_dict, r)
     
     return AuthorDetail.model_validate(author)
 
@@ -255,6 +268,7 @@ async def create_author(
     data: AuthorCreate,
     current_user: dict = Depends(require_scope("authors:draft")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Submit a new author for approval.
@@ -334,6 +348,11 @@ async def create_author(
     
     await db.commit()
     
+    # Invalidate author lists cache (new author added)
+    # Pass book_ids explicitly to avoid DB query in cache layer
+    book_ids = [book.id for book in books] if books else []
+    await cache.invalidate_author(author.id, r, book_ids=book_ids)
+    
     # Refresh with books relationship loaded to avoid lazy load issues
     query = select(Author).where(Author.id == author.id).options(selectinload(Author.books))
     result = await db.execute(query)
@@ -348,6 +367,7 @@ async def update_author(
     data: AuthorUpdate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Update an author.
@@ -394,6 +414,9 @@ async def update_author(
     
     # Store old data for history
     old_data = author
+    
+    # Capture previous book_ids BEFORE modifying (needed for cache invalidation)
+    previous_book_ids = {book.id for book in author.books} if author.books else set()
     
     # Update fields
     if data.name is not None:
@@ -449,6 +472,11 @@ async def update_author(
     
     await db.commit()
     
+    # Invalidate caches - union OLD and NEW book_ids to catch removed books
+    new_book_ids = {book.id for book in author.books} if author.books else set()
+    affected_book_ids = list(previous_book_ids | new_book_ids)
+    await cache.invalidate_author(author_id, r, book_ids=affected_book_ids)
+    
     # Refresh with books relationship loaded to avoid lazy load issues
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
@@ -462,6 +490,7 @@ async def rollback_author_version(
     data: AuthorRollbackRequest,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Rollback author to a previous version from edit history.
@@ -525,6 +554,9 @@ async def rollback_author_version(
             detail=f"Version {data.target_version} not found in edit history"
         )
     
+    # Capture previous book_ids BEFORE rollback (needed for cache invalidation)
+    previous_book_ids = {book.id for book in author.books} if author.books else set()
+    
     # Apply old data to current entity
     old_data = target_record.new_data
     if old_data:
@@ -583,6 +615,12 @@ async def rollback_author_version(
     )
     
     await db.commit()
+    
+    # Invalidate caches - union OLD and NEW book_ids to catch removed books
+    new_book_ids = {book.id for book in author.books} if author.books else set()
+    affected_book_ids = list(previous_book_ids | new_book_ids)
+    await cache.invalidate_author(author_id, r, book_ids=affected_book_ids)
+    
     await db.refresh(author)
     
     # Reload relationships
@@ -596,14 +634,15 @@ async def delete_own_author(
     author_id: int,
     current_user: dict = Depends(require_scope("authors:delete_own")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Delete own author (owner only).
     Soft-deletes the author by setting is_deleted=True.
     Requires 'authors:delete_own' scope + ownership.
     """
-    # Fetch author
-    query = select(Author).where(Author.id == author_id)
+    # Fetch author with books
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -646,6 +685,10 @@ async def delete_own_author(
     )
     
     await db.commit()
+    
+    # Invalidate caches - pass book_ids to avoid DB query
+    book_ids = [book.id for book in author.books] if author.books else []
+    await cache.invalidate_author(author_id, r, book_ids=book_ids)
 
 
 @router.post("/{author_id}/recover", response_model=AuthorDetail)
@@ -653,6 +696,7 @@ async def recover_deleted_author(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:override")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Recover a soft-deleted author (curator only).
@@ -717,6 +761,10 @@ async def recover_deleted_author(
     
     await db.commit()
     
+    # Invalidate caches - pass book_ids to avoid DB query
+    book_ids = [book.id for book in author.books] if author.books else []
+    await cache.invalidate_author(author_id, r, book_ids=book_ids)
+    
     # Reload with books relationship to avoid lazy load issues
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
@@ -734,6 +782,7 @@ async def takedown_author(
     author_id: int,
     current_user: dict = Depends(require_scope("content:takedown")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Hard removal of author (curator/admin only).
@@ -741,7 +790,7 @@ async def takedown_author(
     Requires 'content:takedown' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
     # Fetch author
-    query = select(Author).where(Author.id == author_id)
+    query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
     author = result.scalar_one_or_none()
     
@@ -777,6 +826,10 @@ async def takedown_author(
     )
     
     await db.commit()
+    
+    # Invalidate caches - pass book_ids to avoid DB query
+    book_ids = [book.id for book in author.books] if author.books else []
+    await cache.invalidate_author(author_id, r, book_ids=book_ids)
 
 
 @router.post("/{author_id}/follow", status_code=status.HTTP_201_CREATED)
@@ -784,6 +837,7 @@ async def follow_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Follow an author (no trust reward).
@@ -841,6 +895,9 @@ async def follow_author(
     
     await db.commit()
     
+    # Invalidate author cache (follower_count changed)
+    await cache.invalidate_author_follows(author_id, r)
+    
     # NOTE: Social trust rewards removed to prevent follow/unfollow exploit loop.
     # Trust is only awarded for content approval and helpful reviews.
     
@@ -853,6 +910,7 @@ async def unfollow_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Unfollow an author.
@@ -888,6 +946,10 @@ async def unfollow_author(
     # Delete follow relationship
     await db.delete(follow)
     await db.commit()
+    
+    # Invalidate author cache (follower_count changed)
+    if author:
+        await cache.invalidate_author_follows(author_id, r)
 
 
 # ========================================
@@ -899,6 +961,7 @@ async def approve_author(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:override")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Curator instant approval (bypasses jury voting).
@@ -972,6 +1035,10 @@ async def approve_author(
     result = await db.execute(query)
     author = result.scalar_one()
     
+    # Invalidate caches (status changed, now public) - pass book_ids to avoid DB query
+    book_ids = [book.id for book in author.books] if author.books else []
+    await cache.invalidate_author(author_id, r, book_ids=book_ids)
+    
     return AuthorDetail.model_validate(author)
 
 
@@ -981,6 +1048,7 @@ async def reject_author(
     reason: str = Query(..., description="Rejection reason"),
     current_user: dict = Depends(require_scope("jury:override")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Curator instant rejection (bypasses jury voting).
@@ -1054,5 +1122,9 @@ async def reject_author(
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
     author = result.scalar_one()
+    
+    # Invalidate caches (status changed) - pass book_ids to avoid DB query
+    book_ids = [book.id for book in author.books] if author.books else []
+    await cache.invalidate_author(author_id, r, book_ids=book_ids)
     
     return AuthorDetail.model_validate(author)

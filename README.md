@@ -21,15 +21,19 @@ Production-grade wiki-style content platform with RBAC, trust scoring, and jury-
 - Edit history recording for all operations (CREATE/UPDATE/APPROVE/REJECT/DELETE)
 - **Jury voting system**: Democratic approval (contributor=1 vote, trusted=5 votes, auto-publish at threshold)
 - **Permission system**: Owner vs wiki-editor (APPROVED content only), curator override
-- **88 tests passing** (12 auth + 10 cursor + 16 edit_history + 17 author workflow + 33 jury voting)
+- **Cascading cache invalidation**: Union old/new IDs to prevent stale cache
+- **Similarity search**: Trigram-based typo-tolerant search with cursor pagination
+- **Security fix**: Removed social trust rewards to prevent follow/unfollow exploit
+- **111 tests passing** (12 auth + 10 cursor + 16 edit_history + 50+ author/jury + 20 cache)
 - All tests use real PostgreSQL database (no SQLite mocks)
 
 **Phase 3: Books & Reviews Workflow** ⏳ **NEXT**
 - Book workflow with approval system (+20/-10 trust, doubled from authors)
 - Review system with user_id (no more reviewer_name)
 - Review voting: helpful/unhelpful with trust scoring (±1, max ±5 per review)
-- Book subscription system with social bonuses
-- Target: 75+ tests passing
+- Book subscription system (NO trust rewards - social metrics only)
+- Apply cache invalidation pattern: OLD authors ∪ NEW authors
+- Target: 150+ tests passing
 
 ## Stack and Capabilities
 - **FastAPI + Uvicorn** - High-performance async web framework with Pydantic v2
@@ -85,21 +89,25 @@ docker compose exec app pytest tests/ -v
 
 ## Testing
 
-**All Tests (88 tests passing with real PostgreSQL):**
+**All Tests (111 tests passing with real PostgreSQL):**
 ```bash
 # Run all tests
 docker compose exec app pytest tests/ -v
 
 # Run specific test suites
-docker compose exec app pytest tests/test_auth_jwt.py -v                # 12 auth tests
-docker compose exec app pytest tests/test_cursor.py -v                  # 10 cursor tests
-docker compose exec app pytest tests/test_edit_history.py -v            # 16 edit history tests
-docker compose exec app pytest tests/test_author_workflow.py -v         # 17 author workflow tests
-docker compose exec app pytest tests/test_jury_voting.py -v             # 12 jury voting tests
-docker compose exec app pytest tests/test_author_ownership.py -v        # 8 ownership tests
-docker compose exec app pytest tests/test_author_publish_paths.py -v    # 4 publish path tests
-docker compose exec app pytest tests/test_curator_override.py -v        # 4 curator override tests
-docker compose exec app pytest tests/test_author_edge_cases.py -v       # 5 edge case tests
+docker compose exec app pytest tests/test_auth_jwt.py -v                    # 12 auth tests
+docker compose exec app pytest tests/test_cursor.py -v                      # 10 cursor tests
+docker compose exec app pytest tests/test_edit_history.py -v                # 16 edit history tests
+docker compose exec app pytest tests/test_author_workflow.py -v             # 17 author workflow tests
+docker compose exec app pytest tests/test_jury_voting.py -v                 # 12 jury voting tests
+docker compose exec app pytest tests/test_author_ownership.py -v            # 8 ownership tests
+docker compose exec app pytest tests/test_author_publish_paths.py -v        # 4 publish path tests
+docker compose exec app pytest tests/test_curator_override.py -v            # 4 curator override tests
+docker compose exec app pytest tests/test_author_edge_cases.py -v           # 5 edge case tests
+docker compose exec app pytest tests/test_author_similarity_search.py -v    # 7 similarity tests
+docker compose exec app pytest tests/test_author_rollback.py -v             # 6 rollback tests
+docker compose exec app pytest tests/test_curator_recovery.py -v            # 5 recovery tests
+docker compose exec app pytest tests/test_cache_rate_limit.py -v            # 20 cache tests
 ```
 
 **Test Coverage:**
@@ -112,6 +120,10 @@ docker compose exec app pytest tests/test_author_edge_cases.py -v       # 5 edge
 - **Publish paths** (4 tests): trusted direct publish vs regular pending
 - **Curator override** (4 tests): instant approve/reject, vote clearing
 - **Edge cases** (5 tests): status transitions, takedown vs delete
+- **Similarity search** (7 tests): trigram matching, typo tolerance, cursor pagination
+- **Version rollback** (6 tests): restore previous versions, permission checks
+- **Curator recovery** (5 tests): soft delete recovery, 24h window
+- **Cache layer** (20 tests): invalidation patterns, version bumping, cascading
 
 **Testing Strategy:**
 - Uses real PostgreSQL database (not SQLite)
@@ -140,6 +152,23 @@ See `.env.example` for complete configuration template.
 - **Redis patterns**: Single-key operations to avoid CROSSSLOT errors in cluster mode
 
 ## Development Notes
+
+**⚠️ CRITICAL: Social Trust Rewards Removed**
+- Following/subscribing does NOT award trust (security decision)
+- Prevents follow/unfollow exploit loop (infinite trust farming)
+- Follower/subscriber counts remain for social proof (UI display)
+- Trust earned ONLY from content quality (approvals, helpful reviews)
+- **Apply to all future social features** (Phase 3+ book/collection subscriptions)
+
+**Cache Invalidation Pattern (MUST FOLLOW):**
+```python
+# When updating M2M relationships, capture OLD before modifying
+old_ids = {x.id for x in entity.relationship}
+entity.relationship = new_values
+new_ids = {x.id for x in entity.relationship}
+affected_ids = list(old_ids | new_ids)  # Union old + new
+await cache.invalidate(entity_id, related_ids=affected_ids)
+```
 
 **Async Session Patterns (SQLAlchemy 2.0):**
 - Always use `AsyncSession` from `database.get_async_db()`

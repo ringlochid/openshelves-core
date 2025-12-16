@@ -32,12 +32,81 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 - Marked helpful by trusted+ user: **+1** (max +5 per review)
 - Marked unhelpful by trusted+ user: **-1** (max -5 per review)
 
-**Social Engagement Bonus:**
-- Author followed by another user: **+3** to submitter (max +6 per author)
-- Book/Collection subscribed: **+3** to submitter (max +6 per item)
+**~~Social Engagement Bonus~~ ❌ REMOVED (Security Decision):**
+- ~~Author followed: +3 to submitter~~ **REMOVED** - Exploit risk (follow/unfollow loop)
+- ~~Book/Collection subscribed: +3~~ **REMOVED** - Exploit risk
+- **Decision**: Social engagement does NOT award trust (prevents gaming)
+- **Note**: Follower/subscriber counts remain for social proof (UI display only)
 
 **Auto-Blacklist:**
 - When `trust_score <= 0`: Set `is_blacklisted=True`, requires admin unlock
+
+---
+
+## ⚠️ CRITICAL LESSONS LEARNED - READ BEFORE PHASE 3+
+
+### Cache Invalidation Pattern (MUST FOLLOW)
+
+**Problem Discovered in Phase 2.4:**
+When updating entity relationships (e.g., author's books), we initially only invalidated NEW relationship IDs, missing OLD ones that were removed. This left stale cache entries.
+
+**Example Bug:**
+```python
+# ❌ WRONG - Only invalidates current books
+author.books = new_books  # Removes book 2, keeps [1, 3]
+await cache.invalidate_author(author_id, book_ids=[1, 3])
+# Bug: Book 2's cache still shows author association!
+```
+
+**Correct Pattern:**
+```python
+# ✅ CORRECT - Capture OLD, union with NEW
+previous_book_ids = {book.id for book in author.books}
+author.books = new_books
+new_book_ids = {book.id for book in author.books}
+affected_ids = list(previous_book_ids | new_book_ids)  # Union
+await cache.invalidate_author(author_id, book_ids=affected_ids)
+```
+
+**Apply This Pattern To:**
+- ✅ Author update/rollback: OLD books ∪ NEW books
+- ⏳ Book update: OLD authors ∪ NEW authors (Phase 3)
+- ⏳ Collection update: OLD books ∪ NEW books (Phase 4)
+- ⏳ Any M2M relationship modification
+
+**Implementation Checklist:**
+1. Before modifying relationship: `old_ids = {x.id for x in entity.relationship}`
+2. Modify relationship: `entity.relationship = new_values`
+3. After modification: `new_ids = {x.id for x in entity.relationship}`
+4. Invalidate: `affected_ids = list(old_ids | new_ids)`
+
+**Tested in:** `routers/author.py` (update_author, rollback_author_version)
+**Reference:** See Phase 2.4 completion notes
+
+### Social Trust Rewards Decision (NO LONGER AWARDED)
+
+**Problem:** Follow/unfollow exploit allows infinite trust farming
+```python
+# Without tracking:
+1. User follows author → +3 trust
+2. User unfollows → Keeps +3 (no decrease tracked)
+3. User follows again → +3 AGAIN
+4. Repeat infinitely → Unlimited trust
+```
+
+**Decision:** Remove ALL social trust rewards
+- ❌ No trust for following authors
+- ❌ No trust for subscribing to books/collections  
+- ✅ Keep follower/subscriber counts for social proof (UI display)
+- ✅ Trust earned ONLY from content quality (approvals, helpful reviews)
+
+**Implementation:**
+- Removed `adjust_trust_for_social_bonus()` calls from follow/subscribe endpoints
+- Updated docstrings: "Follow author (no trust reward)"
+- Social metrics remain for UX (show popularity)
+
+**Apply to Phase 3:** Book subscriptions must NOT award trust
+**Apply to Phase 4:** Collection subscriptions must NOT award trust
 
 ---
 
@@ -350,30 +419,29 @@ Transform prototype CRUD library service into production-grade wiki-style conten
 
 ---
 
-## Phase 2: Auth Integration & Author Workflow (5-6 days) ⚠️ NEEDS COMPLETE REFACTOR
+## Phase 2: Auth Integration & Author Workflow (5-6 days) ✅ FULLY COMPLETED
 
 **Prerequisites:** Phase 1 complete (schema, helpers, tests all passing)
 
-**CRITICAL ISSUE IDENTIFIED**: Current implementation is **architecturally wrong** - missing the entire **jury voting system** that is the core governance mechanism of this platform!
+**Final Status (Complete)**:
+- ✅ JWT authentication with scope/role/trust validation (12 tests)
+- ✅ Democratic jury voting system (33 tests)
+- ✅ Ownership-based permissions (owner vs wiki-editor)
+- ✅ Direct publish for trusted users (bypasses queue)
+- ✅ Curator override (instant approve/reject)
+- ✅ Social engagement (follow/unfollow, NO trust rewards)
+- ✅ Cascading cache invalidation (OLD ∪ NEW pattern)
+- ✅ **111 tests passing** (100% success rate)
 
-**Current Status (Incomplete)**:
-- ✅ JWT authentication with scope/role/trust validation
-- ✅ Basic author CRUD endpoints
-- ⚠️ Instant approve/reject (should be curator override ONLY)
-- ⚠️ No democratic jury voting system
-- ⚠️ Missing ownership-based permissions
-- ⚠️ Missing direct publish for trusted users
-- ⚠️ 55 tests passing (but only cover basic CRUD, not jury system)
-
-**Required Refactoring**:
-1. Add `JuryVote` table for democratic voting
-2. Implement jury queue endpoints (GET /jury/authors)
-3. Implement vote casting (POST /jury/authors/{id}/vote)
-4. Auto-publish when vote_score >= 5
-5. Separate curator override from democratic voting
-6. Add proper owner-based permissions (update_own, delete_own)
-7. Add direct publish path for trusted users
-8. Add 33 additional tests for jury system
+**Key Achievements**:
+1. ✅ Full jury voting system with JuryVote table
+2. ✅ Three approval paths: democratic voting, curator override, trusted bypass
+3. ✅ Scope-based RBAC (no role checks in business logic)
+4. ✅ Similarity search with trigram indexes
+5. ✅ Cache invalidation fixed (union old/new IDs)
+6. ✅ Social trust exploit prevented (removed rewards)
+7. ✅ Edit history tracking for all operations
+8. ✅ Optimistic locking with version conflict detection
 
 ### Phase 2.1: Auth Implementation (2-3 days) ✅
 
@@ -528,13 +596,13 @@ class Author(Base):
 
 **Status**: All endpoints implemented with jury voting system. All 33 comprehensive tests passing (100% success rate).
 
-### Phase 2.4: Author Enhancements (Polish & Optimization) ⏳ IN PROGRESS
+### Phase 2.4: Author Enhancements (Polish & Optimization) ✅ COMPLETED
 
-**Status**: Core functionality complete. Implementing advanced features and optimizations.
+**Status**: All critical enhancements completed. Optional features deferred to Phase 4.
 
-**Outstanding Tasks from author.py TODOs:**
+**Completed Tasks:**
 
-#### Task 1: Implement Trigram Similarity Search for GET /authors ✅ PRIORITY
+#### Task 1: Implement Trigram Similarity Search for GET /authors ✅ COMPLETED
 - **Current**: Basic ILIKE search with pagination (`page`, `per_page`, `search`, `sort`, `order`)
 - **Target**: PostgreSQL trigram similarity with cursor pagination (like `author.py.old`)
 - **Why**: Better search quality, typo tolerance, proper ranking
@@ -556,7 +624,7 @@ class Author(Base):
   - Test: Typos return close matches (e.g., "Steph King" finds "Stephen King")
   - Test: Empty search returns all authors
 
-#### Task 2: Remove Social Bonus Trust Rewards ✅ CRITICAL - DESIGN DECISION
+#### Task 2: Remove Social Bonus Trust Rewards ✅ COMPLETED - DESIGN DECISION
 - **Decision**: Remove trust rewards for follow/subscribe actions entirely
 - **Reason**: Exploit risk - users can repeatedly follow/unfollow to farm trust
   - Without tracking: User follows → +3, unfollows, follows → +3 again (infinite loop)
@@ -581,7 +649,7 @@ class Author(Base):
 - **Decision**: No trust rewards for social actions → no need for unfollow adjustments
 - **Reason**: Removed to prevent follow/unfollow exploit loop
 
-#### Task 4: Implement Version Rollback Endpoint ⏳ OPTIONAL
+#### Task 4: Implement Version Rollback Endpoint ✅ COMPLETED
 - **Endpoint**: `POST /authors/{id}/rollback?target_version={version}`
 - **Purpose**: Revert author to previous version (undo vandalism)
 - **Requirements**:
@@ -600,7 +668,7 @@ class Author(Base):
   - Test: Permission check (owner or wiki editor)
   - Test: Can't rollback to non-existent version (404)
 
-#### Task 5: Add Curator Recovery from Soft Delete ⏳ OPTIONAL
+#### Task 5: Add Curator Recovery from Soft Delete ✅ COMPLETED
 - **Endpoint**: `POST /authors/{id}/recover`
 - **Purpose**: Restore soft-deleted content within 24h window
 - **Requirements**:
@@ -644,24 +712,29 @@ class Author(Base):
 - **Decision**: Defer to Phase 4 (Auth Service enhancement required first)
 
 **Priority Order:**
-1. ✅ **Task 1** (Similarity Search) - Improves UX significantly
-2. ✅ **Task 2** (Remove Social Trust) - Security critical, prevents exploitation
-3. ⏳ **Task 5** (Curator Recovery) - Useful for moderation workflow
-4. ⏳ **Task 4** (Version Rollback) - Nice-to-have for vandalism recovery
-5. ⏳ **Task 6** (User Validation) - Adds latency, defer to Phase 4
-6. ⏳ **Task 7** (Reputation) - Requires Auth Service changes first
+1. ✅ **Task 1** (Similarity Search) - Improves UX significantly - COMPLETED
+2. ✅ **Task 2** (Remove Social Trust) - Security critical, prevents exploitation - COMPLETED
+3. ✅ **Task 4** (Version Rollback) - Nice-to-have for vandalism recovery - COMPLETED
+4. ✅ **Task 5** (Curator Recovery) - Useful for moderation workflow - COMPLETED
+5. ⏳ **Task 6** (User Validation) - Adds latency, DEFERRED to Phase 4
+6. ⏳ **Task 7** (Reputation) - Requires Auth Service changes first, DEFERRED to Phase 4
 
-**Estimated Time:**
-- Task 1 (Similarity): 4-6 hours (complex query logic, cursor encoding)
-- Task 2 (Remove Social Trust): 30 mins (remove function calls, update tests)
-- Task 5 (Recovery): 3-4 hours (endpoint + Celery task)
-- Task 4 (Rollback): 2-3 hours (edit history lookup + apply)
-- **Total for Priority Tasks**: ~8-12 hours (1-1.5 days)
+**Completed Time Investment:**
+- Task 1 (Similarity): ✅ DONE (complex query logic, cursor encoding)
+- Task 2 (Remove Social Trust): ✅ DONE (removed function calls, updated tests)
+- Task 4 (Rollback): ✅ DONE (edit history lookup + apply) - 7 tests
+- Task 5 (Recovery): ✅ DONE (endpoint implemented) - 5 tests
+- **Total Tasks Completed**: 4 out of 4 priority tasks
 
-**Test Coverage Target**: 100+ tests (88 current + 12+ new for enhancements)
+**Test Coverage Achieved**: 111+ tests (Phase 2.4 added 23+ tests for enhancements)
 
 **Completed Implementation:**
 - ✅ Direct publish path for trusted users (bypasses queue)
+- ✅ Similarity search with trigram indexes (7 tests)
+- ✅ Social trust exploit fixed (removed rewards)
+- ✅ Version rollback endpoint (7 tests)
+- ✅ Curator recovery endpoint (5 tests)
+- ✅ Cascading cache invalidation (union pattern)
 - ✅ Ownership-based permissions (owner vs wiki-editor)
 - ✅ Jury voting system (democratic approval)
 - ✅ Curator override (instant approve/reject)
@@ -1012,7 +1085,7 @@ tests/test_author_edge_cases.py .....                    [5 passed]
   - Return: 204 No Content
 
 ### Cache Helpers
-- [ ] Update `cache.py` with new functions:
+- [x] Update `cache.py` with new functions:
   - `invalidate_author_follows(author_id)` - Clear follow cache
   - Update `invalidate_author()` to handle new relationships
   - Add versioned cache keys for author lists by status
@@ -1025,7 +1098,6 @@ tests/test_author_edge_cases.py .....                    [5 passed]
 - [ ] Test update with wrong version (409 conflict with error details)
 - [ ] Test soft delete and recover within 24h (succeeds)
 - [ ] Test recover after 24h (fails with 400)
-- [ ] Test follow author (increment count, trust +3)
 - [ ] Test unfollow author (decrement count)
 - [ ] Test duplicate follow (fails with 400)
 - [ ] Test permission checks (owner vs curator vs public)
@@ -1184,6 +1256,15 @@ ROLE_SCOPES = {
 - Direct publish logic (`books:publish_direct`) needs early detection
 - Owner vs wiki-editor permissions need clear separation
 
+⚠️ **CRITICAL SECURITY DECISION - APPLY TO PHASE 3:**
+**NO TRUST REWARDS FOR BOOK SUBSCRIPTIONS** - Social engagement (subscriptions) should only track user engagement, not award trust.
+Awarding trust for subscriptions creates an exploit loop where users can subscribe/unsubscribe repeatedly to farm unlimited trust points.
+
+**Trust should ONLY be earned from:**
+- Book approval: +20 trust (doubles author reward due to file upload validation)
+- Book rejection: -10 trust (doubles penalty)  
+- Review helpfulness voting: ±1 trust per vote (max ±5 per review, requires voter trust >= 50)
+
 **Estimated Time Breakdown:**
 - Books jury system (reuse Phase 2): 2.5 days
 - Reviews with voting: 2 days
@@ -1278,9 +1359,9 @@ ROLE_SCOPES = {
   - Prevent duplicates: check existing `BookSubscription`
   - Create subscription record
   - Increment: `book.subscriber_count`
-  - Call Auth Service: `adjust_trust_for_social_bonus(+3, max +6)`
+  - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents subscribe/unsubscribe exploit loop)
   - Return: success message
-  - **Key Pattern:** Same as author follow
+  - **Key Pattern:** Same as author follow - engagement tracking only
 
 - [ ] `DELETE /books/{id}/subscribe` - Unsubscribe
   - Find and delete subscription (404 if not subscribed)
@@ -1441,7 +1522,7 @@ ROLE_SCOPES = {
   - Requires: `social:follow` scope
   - Create `BookSubscription` record
   - Increment `book.subscriber_count`
-  - Call Auth Service: `adjust_trust(submitter, +3, source="social")`
+  - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents subscribe/unsubscribe exploit loop)
   - Return: `{"message": "...", "subscriber_count": N}`
 
 - [ ] `DELETE /books/{id}/subscribe` - Unsubscribe
@@ -1498,6 +1579,14 @@ ROLE_SCOPES = {
 ---
 
 ## Phase 4: Collections (3-4 days) ⏳ NOT STARTED
+
+⚠️ **CRITICAL SECURITY DECISION - APPLY TO PHASE 4:**
+**NO TRUST REWARDS FOR COLLECTION SUBSCRIPTIONS** - Same rationale as Phase 2 (authors) and Phase 3 (books).
+Subscription/unsubscription loops can be exploited to farm unlimited trust. Social engagement is for tracking only.
+
+**Trust should ONLY be earned from:**
+- Collection approval: +10 trust (same as author approval)
+- Collection rejection: -5 trust (same as author rejection)
 
 ### Collection Router
 - [ ] Create `routers/collection.py`
@@ -1571,7 +1660,7 @@ ROLE_SCOPES = {
   - Requires: `social:follow`
   - Create `CollectionSubscription`
   - Increment `subscriber_count`
-  - Call Auth Service: `adjust_trust(+3, source="social")`
+  - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents subscribe/unsubscribe exploit loop)
   - Return: `{"message": "...", "subscriber_count": N}`
 
 - [ ] `DELETE /collections/{id}/subscribe` - Unsubscribe
@@ -2020,7 +2109,7 @@ python scripts/seed_initial_data.py
 - ✅ Collections fully functional
 - ✅ Media uploads work (S3 presign → process → store)
 - ✅ Celery cleanup tasks run on schedule
-- ✅ Social features award trust bonuses
+- ✅ Social features (follow/subscribe) for engagement tracking only - NO trust rewards to prevent exploit loops
 
 **Phase 7-8 Complete:**
 - ✅ 80%+ test coverage
@@ -2033,7 +2122,7 @@ python scripts/seed_initial_data.py
 
 ## Notes & Reminders
 
-1. **Trust Score Caps:** Max +6 per author (follows), max ±5 per review. Track externally or in separate table.
+1. **Trust Score Caps:** Max +6 per author (follows)(legacy now follow and subscribe have no trust awarding), max ±5 per review. Track externally or in separate table.
 2. **Optimistic Lock UI:** Frontend should handle 409 conflicts with diff view.
 3. **Service API Key:** Rotate every 30-90 days for security.
 4. **JWT Public Key:** Must update if Auth Service rotates keys.
@@ -2503,7 +2592,7 @@ async def record_edit(
 **Social:**
 - `POST /authors/{id}/follow` - Follow author - `social:follow` scope
   - Increment follower_count
-  - Calls Auth Service: `adjust_trust(submitter, +3, source="social")` (max +6 cap via external tracking)
+  - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents follow/unfollow exploit loop)
 - `DELETE /authors/{id}/follow` - Unfollow author
 - `GET /authors/{id}/followers` - List followers (user IDs)
 
@@ -2574,7 +2663,7 @@ Test cases:
 - `POST /admin/books/{id}/recover` - Recover soft-deleted
 
 **Social:**
-- `POST /books/{id}/subscribe` - Subscribe (+3 trust to uploader)
+- `POST /books/{id}/subscribe` - Subscribe (NO trust reward - engagement tracking only)
 - `DELETE /books/{id}/subscribe` - Unsubscribe
 - `POST /reviews/{id}/vote` - Vote helpful/unhelpful (triggers trust ±1 to reviewer, max ±5)
 
@@ -2699,7 +2788,7 @@ async def vote_on_review(
 - `DELETE /collections/{id}` - Soft delete
 - `POST /collections/{id}/books` - Add book to collection
 - `DELETE /collections/{id}/books/{book_id}` - Remove book
-- `POST /collections/{id}/subscribe` - Subscribe (+3 trust)
+- `POST /collections/{id}/subscribe` - Subscribe (NO trust reward - engagement tracking only)
 - `DELETE /collections/{id}/subscribe` - Unsubscribe
 
 **Curator:**
@@ -3197,7 +3286,7 @@ docker-compose exec app alembic upgrade head
 - ✅ Content approval workflow triggers trust adjustments
 - ✅ Edit history tracks all changes with version control
 - ✅ Soft deletes with 24h recovery window
-- ✅ Social features (follow/subscribe) award trust bonuses
+- ✅ Social features (follow/subscribe) implemented for engagement tracking only - NO trust rewards
 - ✅ Review voting adjusts reviewer trust (max ±5)
 - ✅ Media uploads work (S3 presign → process → store)
 - ✅ Celery cleanup tasks run on schedule
@@ -3209,7 +3298,7 @@ docker-compose exec app alembic upgrade head
 
 ## 📝 Notes
 
-1. **Trust Score Caps:** Need to track caps externally (e.g., max +6 per author from follows). Store in Redis or separate table.
+1. **Trust Score Caps:** Need to track caps externally. Store in Redis or separate table.
 2. **Optimistic Lock UI:** Frontend should handle 409 conflicts gracefully with diff view.
 3. **Service API Key:** Rotate periodically (30-90 days).
 4. **JWT Public Key:** Update if Auth Service rotates keys.

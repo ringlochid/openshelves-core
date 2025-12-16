@@ -12,6 +12,90 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+# ========================================
+# FAKE REDIS FOR TESTING
+# ========================================
+
+class FakeRedis:
+    """
+    Fake Redis client for testing to avoid event loop issues.
+    Implements the Redis interface used by the app without actual connections.
+    """
+    def __init__(self):
+        self.kv_store = {}
+        self.hash_store = {}
+
+    async def hgetall(self, key):
+        return self.hash_store.get(key, {})
+
+    async def hset(self, key, mapping):
+        self.hash_store.setdefault(key, {}).update({k: str(v) for k, v in mapping.items()})
+
+    async def expire(self, key, seconds):
+        return True
+
+    async def set(self, key, value, ex=None):
+        self.kv_store[key] = value
+        return True
+
+    async def get(self, key):
+        return self.kv_store.get(key)
+
+    async def delete(self, *keys):
+        for key in keys:
+            self.kv_store.pop(key, None)
+        return len(keys)
+
+    async def exists(self, key):
+        return 1 if key in self.kv_store else 0
+
+    async def keys(self, pattern):
+        """Simple pattern matching for test: prefix."""
+        if pattern.endswith("*"):
+            prefix = pattern[:-1]
+            return [k for k in self.kv_store.keys() if k.startswith(prefix)]
+        return [k for k in self.kv_store.keys() if k == pattern]
+
+    async def incr(self, key):
+        """Increment a key."""
+        current = self.kv_store.get(key, "0")
+        new_val = int(current) + 1
+        self.kv_store[key] = str(new_val)
+        return new_val
+
+    async def aclose(self):
+        """Close connection (no-op for fake)."""
+        pass
+
+    def pipeline(self):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    """Fake Redis pipeline for testing."""
+    def __init__(self, redis_client: FakeRedis):
+        self.redis = redis_client
+        self.ops = []
+
+    def get(self, key):
+        self.ops.append(("get", key))
+        return self
+
+    def delete(self, key):
+        self.ops.append(("delete", key))
+        return self
+
+    async def execute(self):
+        results = []
+        for op, key in self.ops:
+            if op == "get":
+                results.append(await self.redis.get(key))
+            elif op == "delete":
+                await self.redis.delete(key)
+                results.append(1)
+        return results
+
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
@@ -131,9 +215,20 @@ async def async_client(test_db: AsyncSession):
                 detail=f"Invalid token: {str(e)}",
             )
     
+    # Create FakeRedis for this test session
+    fake_redis = FakeRedis()
+    
+    async def override_get_redis():
+        """Override Redis dependency to return FakeRedis."""
+        return fake_redis
+    
+    # Import cache module's get_redis to override it
+    from cache import get_redis
+    
     # Override database and all auth dependencies
     app.dependency_overrides[get_async_db] = override_get_db
     app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[get_redis] = override_get_redis
     
     try:
         async with AsyncClient(
@@ -218,3 +313,18 @@ def mock_admin_user():
          patch("dependencies.auth.require_role", return_value=user_data), \
          patch("dependencies.auth.require_min_trust", return_value=user_data):
         yield user_data
+
+
+# ========================================
+# REDIS FIXTURES
+# ========================================
+
+@pytest.fixture(scope="function")
+async def redis():
+    """
+    Create a fresh FakeRedis instance for each test.
+    This avoids event loop issues with real Redis connections.
+    """
+    fake_redis = FakeRedis()
+    yield fake_redis
+    # Cleanup is automatic since it's just a dict in memory

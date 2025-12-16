@@ -16,6 +16,8 @@ from helpers.jury import (
     retract_jury_vote,
     get_vote_status,
 )
+import cache
+from cache import Redis
 
 
 router = APIRouter(prefix="/jury", tags=["Jury Voting"])
@@ -33,13 +35,20 @@ async def list_pending_authors(
     order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: dict = Depends(require_scope("jury:view")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     List pending authors in jury queue.
     Requires 'jury:view' scope (contributor: trust_score >= 10).
     
     Shows authors awaiting jury votes or curator approval.
+    Cached with version-based invalidation (bumped when voting/approval happens).
     """
+    # Try cache first
+    params = {"page": page, "per_page": per_page, "sort": sort, "order": order}
+    cached = await cache.get_list("jury:authors", params, r=r)
+    if cached is not None:
+        return cached
     # Base query - only show PENDING, non-deleted authors
     query = select(Author).where(
         and_(
@@ -67,13 +76,18 @@ async def list_pending_authors(
     result = await db.execute(query)
     authors = result.scalars().all()
     
-    return AuthorListResponse(
+    response_data = AuthorListResponse(
         items=[AuthorRead.model_validate(a) for a in authors],
         total=total,
         page=page,
         per_page=per_page,
         pages=(total + per_page - 1) // per_page,
     )
+    
+    # Cache the result
+    await cache.cache_list("jury:authors", params, response_data.model_dump(mode="json"), r=r)
+    
+    return response_data
 
 
 @router.get("/authors/{author_id}", response_model=AuthorDetail)
@@ -81,13 +95,19 @@ async def get_pending_author_detail(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Get detailed information for a pending author.
     Requires 'jury:view' scope.
     
     Shows full author details plus voting status.
+    Uses author cache (invalidated on any author change).
     """
+    # Try cache first (uses same author cache as public endpoint)
+    cached = await cache.get_author(author_id, r)
+    if cached and cached.get("status") == "PENDING":
+        return AuthorDetail.model_validate(cached)
     query = select(Author).where(
         and_(
             Author.id == author_id,
@@ -104,6 +124,10 @@ async def get_pending_author_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pending author not found"
         )
+    
+    # Cache the result
+    author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
+    await cache.cache_author(author_id, author_dict, r)
     
     return AuthorDetail.model_validate(author)
 
