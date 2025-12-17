@@ -2,6 +2,7 @@
 Cleanup tasks for Library Service.
 Handles auto-purging of soft-deleted content and expired uploads.
 """
+import asyncio
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +24,6 @@ def cleanup_soft_deleted_content() -> dict:
     Returns:
         Dict with counts of deleted entities
     """
-    import asyncio
-    
     async def _cleanup():
         async with AsyncSessionLocal() as db:
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -88,8 +87,6 @@ def cleanup_expired_uploads() -> dict:
     Returns:
         Dict with count of deleted records
     """
-    import asyncio
-    
     async def _cleanup():
         async with AsyncSessionLocal() as db:
             now = datetime.now(timezone.utc)

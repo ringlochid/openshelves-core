@@ -7,6 +7,7 @@ The jury system allows community members to vote on PENDING content:
 
 When vote_score >= 5, content is automatically published to APPROVED.
 """
+import cache
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -312,8 +313,6 @@ async def _invalidate_entity_caches(db: AsyncSession, entity_type: str, entity_i
         entity: The entity object (for getting related IDs)
         redis_client: Redis client for cache operations
     """
-    import cache
-    
     r = redis_client
     
     if entity_type == "author":
@@ -339,8 +338,6 @@ async def _invalidate_entity_caches(db: AsyncSession, entity_type: str, entity_i
 
 async def _invalidate_pending_vote_caches(entity_type: str, entity_id: int, redis_client):
     """Invalidate jury queue/list caches when a vote does not auto-publish."""
-    import cache
-
     if entity_type == "author":
         await cache.invalidate_entity("author", entity_id, redis_client)
         await cache.bump_cache_version("jury:authors", redis_client)
