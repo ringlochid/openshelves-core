@@ -1706,43 +1706,43 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: 204
 
 **Curator Endpoints:**
-- [ ] `GET /admin/books/pending` - List pending books
+- [x] `GET /admin/books/pending` - List pending books
   - Requires: `content:review`
   - Same pattern as authors
   - Return: `List[BookListRead]`
 
-- [ ] `POST /admin/books/{id}/approve` - Approve book
+- [x] `POST /admin/books/{id}/approve` - Approve book
   - Requires: `content:approve`
   - Set: `status=approved`, `is_public=True`
   - Call Auth Service: `adjust_trust(+20, source="upload")`
   - Return: `{"message": "...", "trust_delta": 20}`
 
-- [ ] `POST /admin/books/{id}/reject` - Reject book
+- [x] `POST /admin/books/{id}/reject` - Reject book
   - Requires: `content:approve`
   - Query param: `reason`
   - Set: `status=rejected`
   - Call Auth Service: `adjust_trust(-10, source="upload")`
   - Return: `{"message": "...", "trust_delta": -10}`
 
-- [ ] `POST /admin/books/{id}/recover` - Recover soft-deleted
+- [x] `POST /admin/books/{id}/recover` - Recover soft-deleted
   - Same pattern as authors
   - Return: `BookDetailRead`
 
 **Social Endpoints:**
-- [ ] `POST /books/{id}/subscribe` - Subscribe to book
+- [x] `POST /books/{id}/subscribe` - Subscribe to book
   - Requires: `social:follow` scope
   - Create `BookSubscription` record
   - Increment `book.subscriber_count`
   - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents subscribe/unsubscribe exploit loop)
   - Return: `{"message": "...", "subscriber_count": N}`
 
-- [ ] `DELETE /books/{id}/subscribe` - Unsubscribe
+- [x] `DELETE /books/{id}/subscribe` - Unsubscribe
   - Delete subscription
   - Decrement count
   - Return: 204
 
 **Review Voting Endpoints:**
-- [ ] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
+- [x] `POST /reviews/{id}/vote` - Vote helpful/unhelpful
   - Requires: `social:vote` scope AND `trust_score >= 50` (trusted+)
   - Body: `{"vote": "helpful"|"unhelpful"}`
   - Check: voter hasn't voted on this review yet
@@ -1754,7 +1754,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `{"message": "...", "trust_delta": ±1}`
 
 ### Review Voting Service
-- [ ] Create `services/review_voting.py`
+- [x] Create `services/review_voting.py`
   - `vote_on_review()` function with business logic:
     - Eligibility check (trust >= 50)
     - Duplicate vote handling (allow vote change)
@@ -1763,7 +1763,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
     - Trust adjustment call to Auth Service
 
 ### Schema Updates
-- [ ] Update `schemas/book.py`
+- [x] Update `schemas/book.py`
   - Add: `status`, `version`, `file_key`, `file_format`, `created_by_user_id`, `subscriber_count`
   - Keep: `BookSortControl`, `SortField`, `SortDirection` enums for multi-field sorting
   - Update: `PaginatedBooksCursor` for cursor-based pagination (items + next_cursor)
@@ -1771,25 +1771,25 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Add: `BookRollbackRequest` schema with `target_version: int`
   - Update `BookDetailRead` to include review helpfulness
 
-- [ ] Update `schemas/review.py`
+- [x] Update `schemas/review.py`
   - Change `reviewer_name` → `user_id`
   - Add: `helpful_count`, `unhelpful_count`
   - Remove `ReviewUpdate` with reviewer_name
 
 ### Testing
-- [ ] Test book creation (pending, with authors)
-- [ ] Test book approval (trust +20)
-- [ ] Test book rejection (trust -10)
-- [ ] Test book update with version check
-- [ ] Test book soft delete and recover
-- [ ] Test review creation with user_id (not reviewer_name)
-- [ ] Test review unique constraint (one per user per book)
-- [ ] Test review voting (helpful/unhelpful)
-- [ ] Test review voting requires trust >= 50
-- [ ] Test review voting duplicate prevention
-- [ ] Test review voting trust cap (max ±5)
-- [ ] Test review trust adjustment calls Auth Service
-- [ ] Test subscribe/unsubscribe to book
+- [x] Test book creation (pending, with authors)
+- [x] Test book approval (trust +20)
+- [x] Test book rejection (trust -10)
+- [x] Test book update with version check
+- [x] Test book soft delete and recover
+- [x] Test review creation with user_id (not reviewer_name)
+- [x] Test review unique constraint (one per user per book)
+- [x] Test review voting (helpful/unhelpful)
+- [x] Test review voting requires trust >= 50
+- [x] Test review voting duplicate prevention
+- [x] Test review voting trust cap (max ±5)
+- [x] Test review trust adjustment calls Auth Service
+- [x] Test subscribe/unsubscribe to book
 
 ---
 

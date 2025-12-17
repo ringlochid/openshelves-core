@@ -5,11 +5,13 @@ Handles caching of authors, books, and lists with automatic invalidation.
 import hashlib
 import json
 from typing import Any
-
 from fastapi import Request
 from redis import asyncio as aioredis
-
 from settings import settings
+from database import AsyncSessionLocal
+from models import Author, Book
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 Redis = aioredis.Redis
 from_url = aioredis.from_url
@@ -175,12 +177,7 @@ async def get_author_book_ids(author_id: int) -> list[int]:
     """
     Get IDs of books associated with an author.
     Used for cascading cache invalidation.
-    """
-    from database import AsyncSessionLocal
-    from models import Author
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    
+    """  
     async with AsyncSessionLocal() as db:
         query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
         result = await db.execute(query)
@@ -196,11 +193,6 @@ async def get_book_author_ids(book_id: int) -> list[int]:
     Get IDs of authors associated with a book.
     Used for cascading cache invalidation.
     """
-    from database import AsyncSessionLocal
-    from models import Book
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    
     async with AsyncSessionLocal() as db:
         query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
         result = await db.execute(query)

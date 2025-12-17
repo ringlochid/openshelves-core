@@ -2,6 +2,7 @@
 Author router with wiki-style workflow and RBAC.
 Implements Phase 2 author management endpoints.
 """
+from helpers.cursor import decode_cursor, encode_cursor
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -34,6 +35,8 @@ from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rej
 # NOTE: adjust_trust_for_social_bonus removed - social trust rewards deprecated in Phase 2.4
 import cache
 from cache import Redis
+from services.auth_client import validate_user_exists
+from helpers.edit_history import record_update
 
 
 router = APIRouter(prefix="/authors", tags=["Authors"])
@@ -58,8 +61,6 @@ async def list_authors(
     - Uses cursor-based pagination for consistent results
     - No authentication required
     """
-    from helpers.cursor import decode_cursor, encode_cursor
-    
     # Base conditions
     base_conditions = and_(
         Author.status == ContentStatus.APPROVED,
@@ -506,8 +507,6 @@ async def rollback_author_version(
     
     Creates a new version with the old data (does not revert version number).
     """
-    from sqlalchemy.orm import selectinload
-    
     # Fetch author
     query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
     result = await db.execute(query)
@@ -600,7 +599,6 @@ async def rollback_author_version(
         
         # Warn if linked_user_id user no longer exists in auth service
         if "linked_user_id" in old_data and old_data["linked_user_id"]:
-            from services.auth_client import validate_user_exists
             user_exists = await validate_user_exists(UUID(old_data["linked_user_id"]))
             if not user_exists:
                 print(f"Warning: Restoring linked_user_id {old_data['linked_user_id']} but user no longer exists in auth service")
@@ -755,7 +753,6 @@ async def recover_deleted_author(
     author.last_edited_at = datetime.now(timezone.utc)
     
     # Record recovery in edit history
-    from helpers.edit_history import record_update
     await record_update(
         db=db,
         entity_type="author",

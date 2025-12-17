@@ -5,7 +5,6 @@ Handles trust score adjustments and service-to-service communication.
 import logging
 from typing import Any
 from uuid import UUID
-
 import httpx
 from fastapi import HTTPException, status
 

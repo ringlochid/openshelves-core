@@ -4,9 +4,7 @@ Base classes and common field groups for reuse across entities.
 """
 from datetime import datetime
 from uuid import UUID
-
 from pydantic import BaseModel, ConfigDict, Field
-
 from models import ContentStatus
 
 

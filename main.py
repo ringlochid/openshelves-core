@@ -3,10 +3,9 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from routers import author, jury, book
 from cache import close_redis, init_redis
 from dependencies.auth import load_jwt_public_key
-#from routers import author, book, review
 from settings import settings
 
 
@@ -52,8 +51,6 @@ app.add_middleware(
 )
 
 # Include routers
-from routers import author, jury, book
-
 app.include_router(author.router)
 app.include_router(jury.router)
 app.include_router(book.router)  # Phase 3: Books & Reviews

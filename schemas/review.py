@@ -3,11 +3,9 @@ Review Pydantic schemas for Library Service.
 Supports review voting, trust rewards, and soft delete.
 """
 from uuid import UUID
-
 from pydantic import BaseModel, Field
-
 from models import VoteType
-from .shared import BaseSchema, TimestampMixin
+from .shared import BaseSchema, TimestampMixin, ReviewRead
 
 
 # ========================================
@@ -29,11 +27,6 @@ class ReviewUpdate(BaseModel):
 # ========================================
 # Response Schemas
 # ========================================
-
-# Import from shared to avoid circular imports
-from .shared import ReviewRead
-
-
 class ReviewDetail(ReviewRead):
     """Complete review with user vote status."""
     user_vote: VoteType | None = Field(None, description="Current user's vote on this review")

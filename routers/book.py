@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from database import get_async_db
 from dependencies.auth import get_current_user, require_scope, require_min_trust
-from models import Book, Author, Review, BookSubscription, ReviewVote, ContentStatus, VoteType
+from models import Book, Author, Review, BookSubscription, ReviewVote, ContentStatus, VoteType, EditHistory
 from schemas.book import (
     BookCreate,
     BookUpdate,
@@ -36,7 +36,7 @@ from helpers.edit_history import (
 )
 from helpers.cursor import encode_cursor, decode_cursor
 from helpers.jury import clear_jury_votes
-from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection
+from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection, auth_service_client
 import cache
 from cache import Redis
 
@@ -684,7 +684,6 @@ async def rollback_book_version(
     check_version_conflict(book.version, data.version, "book", book_id)
     
     # Find target version in history
-    from models import EditHistory
     history_query = select(EditHistory).where(
         and_(
             EditHistory.entity_type == "book",
@@ -1382,7 +1381,6 @@ async def vote_on_review(
         
         # Award trust to reviewer
         try:
-            from services.auth_client import auth_service_client
             await auth_service_client.adjust_user_trust(
                 user_id=review.user_id,
                 delta=delta,
@@ -1474,7 +1472,6 @@ async def remove_review_vote(
         
         # Adjust reviewer trust
         try:
-            from services.auth_client import auth_service_client
             await auth_service_client.adjust_user_trust(
                 user_id=review.user_id,
                 delta=delta,

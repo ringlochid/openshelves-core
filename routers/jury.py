@@ -3,7 +3,7 @@ Jury voting router for democratic content approval.
 Implements community voting system for PENDING content.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +21,7 @@ from helpers.jury import (
 )
 import cache
 from cache import Redis
+from uuid import UUID
 
 
 router = APIRouter(prefix="/jury", tags=["Jury Voting"])
@@ -67,7 +68,6 @@ async def list_pending_authors(
     query = query.order_by(order_col)
     
     # Get total count
-    from sqlalchemy import func
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
     
@@ -179,7 +179,6 @@ async def vote_on_author(
     
     # Verify author exists and is PENDING (lock to prevent concurrent modifications)
     # Eagerly load books relationship for cache invalidation
-    from sqlalchemy.orm import selectinload
     query = (
         select(Author)
         .where(Author.id == author_id)
@@ -341,7 +340,6 @@ async def list_pending_books(
         query = query.order_by(order_col.asc())
     
     # Get total count
-    from sqlalchemy import func
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
     
@@ -374,8 +372,6 @@ async def get_pending_book_detail(
     r: Redis = Depends(cache.get_redis),
 ):
     """Get detailed information about a pending book in the jury queue."""
-    from sqlalchemy.orm import selectinload
-    
     query = (
         select(Book)
         .where(
@@ -411,7 +407,6 @@ async def vote_on_book(
     Vote weight based on user scopes (contributor=1, trusted=5).
     """
     # Verify book is PENDING (eagerly load authors for cache invalidation)
-    from sqlalchemy.orm import selectinload
     query = (
         select(Book)
         .where(Book.id == book_id)
@@ -428,7 +423,6 @@ async def vote_on_book(
         )
     
     # Cast vote (handles weight calculation, duplicate prevention, auto-approval)
-    from uuid import UUID
     vote_value = calculate_vote_weight(current_user.get("scopes", []))
     
     if vote_value == 0:
@@ -464,8 +458,6 @@ async def retract_vote_on_book(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Retract your jury vote on a pending book."""
-    from uuid import UUID
-    
     await retract_jury_vote(
         db=db,
         entity_type="book",
