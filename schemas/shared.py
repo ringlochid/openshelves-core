@@ -2,6 +2,7 @@
 Shared Pydantic schemas and mixins for Library Service.
 Base classes and common field groups for reuse across entities.
 """
+
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,8 +13,10 @@ from models import ContentStatus
 # Base Configuration
 # ========================================
 
+
 class BaseSchema(BaseModel):
     """Base schema with common configuration."""
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -21,14 +24,17 @@ class BaseSchema(BaseModel):
 # Mixins for Common Field Groups
 # ========================================
 
+
 class TimestampMixin(BaseModel):
     """Timestamp fields for all entities."""
+
     created_at: datetime
     updated_at: datetime
 
 
 class WorkflowMixin(BaseModel):
     """Workflow fields for content requiring approval."""
+
     status: ContentStatus
     is_public: bool
     is_deleted: bool
@@ -38,6 +44,7 @@ class WorkflowMixin(BaseModel):
 
 class VersioningMixin(BaseModel):
     """Version control fields for optimistic locking."""
+
     version: int
     last_edited_by: UUID | None = None
     last_edited_at: datetime | None = None
@@ -47,8 +54,10 @@ class VersioningMixin(BaseModel):
 # Legacy Base Classes (backward compatibility)
 # ========================================
 
+
 class AuthorBase(BaseSchema):
     """Legacy author base - use AuthorRead instead."""
+
     id: int
     name: str
     email: str | None = None
@@ -56,6 +65,7 @@ class AuthorBase(BaseSchema):
 
 class ReviewBase(BaseSchema):
     """Legacy review base - use ReviewRead instead."""
+
     id: int
     rating: int
     user_id: UUID  # Changed from reviewer_name
@@ -64,6 +74,7 @@ class ReviewBase(BaseSchema):
 
 class BookBase(BaseSchema):
     """Legacy book base - use BookRead instead."""
+
     id: int
     title: str
     year: int | None
@@ -73,8 +84,10 @@ class BookBase(BaseSchema):
 # Core Schemas (to avoid circular imports)
 # ========================================
 
+
 class AuthorRead(BaseSchema, TimestampMixin):
     """Basic author information for list views."""
+
     id: int
     name: str
     email: str | None
@@ -85,8 +98,16 @@ class AuthorRead(BaseSchema, TimestampMixin):
     created_by_user_id: UUID
 
 
+class AuthorBrief(BaseSchema):
+    """Minimal author info for book list cards."""
+
+    id: int
+    name: str
+
+
 class BookRead(BaseSchema, TimestampMixin):
     """Basic book information for list views."""
+
     id: int
     title: str
     year: int | None
@@ -99,8 +120,20 @@ class BookRead(BaseSchema, TimestampMixin):
     created_by_user_id: UUID
 
 
+class BookBrief(BaseSchema):
+    """Minimal book info for author list cards."""
+
+    id: int
+    title: str
+    cover_key: str | None
+    subscriber_count: int
+    status: str  # ContentStatus enum value
+    is_public: bool
+
+
 class ReviewRead(BaseSchema, TimestampMixin):
     """Basic review information for list views."""
+
     id: int
     book_id: int
     user_id: UUID

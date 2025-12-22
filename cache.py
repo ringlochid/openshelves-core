@@ -2,6 +2,7 @@
 Simplified Redis cache layer for Library Service.
 Handles caching of authors, books, and lists with automatic invalidation.
 """
+
 import hashlib
 import json
 from typing import Any
@@ -24,6 +25,7 @@ VERSION_KEY_PREFIX = "cache:version:"
 # ========================================
 # REDIS CONNECTION MANAGEMENT
 # ========================================
+
 
 async def init_redis() -> Redis:
     """Initialize singleton Redis client."""
@@ -58,6 +60,7 @@ async def get_redis(request: Request) -> Redis:
 # CACHE VERSION MANAGEMENT
 # ========================================
 
+
 async def get_cache_version(name: str, r: Redis | None = None) -> int:
     """Get current cache version for a namespace."""
     r = r or await init_redis()
@@ -78,6 +81,7 @@ async def bump_cache_version(name: str, r: Redis | None = None) -> int:
 # CACHE KEY GENERATION
 # ========================================
 
+
 def make_cache_key(namespace: str, identifier: str | int) -> str:
     """Generate cache key for a single entity."""
     return f"{namespace}:{identifier}"
@@ -96,12 +100,13 @@ def make_list_key(namespace: str, params: dict, version: int = 1) -> str:
 # ENTITY CACHING (Author, Book, Collection)
 # ========================================
 
+
 async def cache_entity(
     namespace: str,
     entity_id: int,
     data: dict | list[dict],
     r: Redis | None = None,
-    ttl: int = DEFAULT_TTL
+    ttl: int = DEFAULT_TTL,
 ):
     """Cache a single entity (author, book, collection) or list (reviews)."""
     r = r or await init_redis()
@@ -110,9 +115,7 @@ async def cache_entity(
 
 
 async def get_entity(
-    namespace: str,
-    entity_id: int,
-    r: Redis | None = None
+    namespace: str, entity_id: int, r: Redis | None = None
 ) -> dict | list[dict] | None:
     """Get cached entity or list."""
     r = r or await init_redis()
@@ -121,11 +124,7 @@ async def get_entity(
     return json.loads(raw) if raw else None
 
 
-async def invalidate_entity(
-    namespace: str,
-    entity_id: int,
-    r: Redis | None = None
-):
+async def invalidate_entity(namespace: str, entity_id: int, r: Redis | None = None):
     """Invalidate a single entity cache."""
     r = r or await init_redis()
     key = make_cache_key(namespace, entity_id)
@@ -136,34 +135,32 @@ async def invalidate_entity(
 # LIST CACHING (with versioning)
 # ========================================
 
+
 async def cache_list(
     namespace: str,
     params: dict,
     data: Any,
     version: int | None = None,
     r: Redis | None = None,
-    ttl: int = DEFAULT_TTL
+    ttl: int = DEFAULT_TTL,
 ):
     """Cache a list query result."""
     r = r or await init_redis()
     if version is None:
         version = await get_cache_version(namespace, r)
-    
+
     key = make_list_key(namespace, params, version)
     await r.set(key, json.dumps(data), ex=ttl)
 
 
 async def get_list(
-    namespace: str,
-    params: dict,
-    version: int | None = None,
-    r: Redis | None = None
+    namespace: str, params: dict, version: int | None = None, r: Redis | None = None
 ) -> Any | None:
     """Get cached list query result."""
     r = r or await init_redis()
     if version is None:
         version = await get_cache_version(namespace, r)
-    
+
     key = make_list_key(namespace, params, version)
     raw = await r.get(key)
     return json.loads(raw) if raw else None
@@ -173,16 +170,21 @@ async def get_list(
 # RELATIONSHIP HELPERS (for cascading invalidation)
 # ========================================
 
+
 async def get_author_book_ids(author_id: int) -> list[int]:
     """
     Get IDs of books associated with an author.
     Used for cascading cache invalidation.
-    """  
+    """
     async with AsyncSessionLocal() as db:
-        query = select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+        query = (
+            select(Author)
+            .where(Author.id == author_id)
+            .options(selectinload(Author.books))
+        )
         result = await db.execute(query)
         author = result.scalar_one_or_none()
-        
+
         if author and author.books:
             return [book.id for book in author.books]
         return []
@@ -194,10 +196,12 @@ async def get_book_author_ids(book_id: int) -> list[int]:
     Used for cascading cache invalidation.
     """
     async with AsyncSessionLocal() as db:
-        query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
+        query = (
+            select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
+        )
         result = await db.execute(query)
         book = result.scalar_one_or_none()
-        
+
         if book and book.authors:
             return [author.id for author in book.authors]
         return []
@@ -206,6 +210,7 @@ async def get_book_author_ids(book_id: int) -> list[int]:
 # ========================================
 # AUTHOR CACHING
 # ========================================
+
 
 async def cache_author(author_id: int, data: dict, r: Redis | None = None):
     """Cache author entity."""
@@ -219,31 +224,33 @@ async def get_author(author_id: int, r: Redis | None = None) -> dict | None:
     return result if isinstance(result, dict) or result is None else None
 
 
-async def invalidate_author(author_id: int, r: Redis | None = None, book_ids: list[int] | None = None):
+async def invalidate_author(
+    author_id: int, r: Redis | None = None, book_ids: list[int] | None = None
+):
     """
     Invalidate author cache and all lists containing authors.
     Also invalidates related books (cascading invalidation).
-    
+
     Bumps version to invalidate: GET /authors, GET /jury/authors
-    
+
     Args:
         author_id: ID of author to invalidate
         r: Redis connection (optional)
         book_ids: List of related book IDs (optional, will query DB if not provided)
     """
     r = r or await init_redis()
-    
+
     # Invalidate author entity
     await invalidate_entity("author", author_id, r)
-    
+
     # Invalidate author lists
     await bump_cache_version("authors:list", r)
     await bump_cache_version("jury:authors", r)
-    
+
     # Cascade: invalidate related books (books show author info in detail view)
     if book_ids is None:
         book_ids = await get_author_book_ids(author_id)
-    
+
     for book_id in book_ids:
         await invalidate_entity("book", book_id, r)
 
@@ -259,6 +266,7 @@ async def invalidate_author_follows(author_id: int, r: Redis | None = None):
 # BOOK CACHING
 # ========================================
 
+
 async def cache_book(book_id: int, data: dict, r: Redis | None = None):
     """Cache book entity."""
     await cache_entity("book", book_id, data, r)
@@ -271,33 +279,35 @@ async def get_book(book_id: int, r: Redis | None = None) -> dict | None:
     return result if isinstance(result, dict) or result is None else None
 
 
-async def invalidate_book(book_id: int, r: Redis | None = None, author_ids: list[int] | None = None):
+async def invalidate_book(
+    book_id: int, r: Redis | None = None, author_ids: list[int] | None = None
+):
     """
     Invalidate book cache and all lists containing books.
     Also invalidates related authors and reviews (cascading invalidation).
-    
+
     Bumps version to invalidate: GET /books, GET /authors/{id}/books
-    
+
     Args:
         book_id: ID of book to invalidate
         r: Redis connection (optional)
         author_ids: List of related author IDs (optional, will query DB if not provided)
     """
     r = r or await init_redis()
-    
+
     # Invalidate book entity
     await invalidate_entity("book", book_id, r)
-    
+
     # Invalidate book lists
     await bump_cache_version("books:list", r)
-    
+
     # Cascade: invalidate related authors (author detail shows book list)
     # Note: author_ids should always be provided from calling context to avoid
     # creating new DB sessions (can cause event loop issues in tests)
     if author_ids:
         for author_id in author_ids:
             await invalidate_entity("author", author_id, r)
-    
+
     # Cascade: invalidate book reviews
     await invalidate_entity("reviews", book_id, r)
 
@@ -305,6 +315,7 @@ async def invalidate_book(book_id: int, r: Redis | None = None, author_ids: list
 # ========================================
 # COLLECTION CACHING
 # ========================================
+
 
 async def cache_collection(collection_id: int, data: dict, r: Redis | None = None):
     """Cache collection entity."""
@@ -329,6 +340,7 @@ async def invalidate_collection(collection_id: int, r: Redis | None = None):
 # REVIEW CACHING
 # ========================================
 
+
 async def cache_reviews(book_id: int, data: list[dict], r: Redis | None = None):
     """Cache reviews for a book."""
     await cache_entity("reviews", book_id, data, r)
@@ -344,3 +356,35 @@ async def get_reviews(book_id: int, r: Redis | None = None) -> list[dict] | None
 async def invalidate_reviews(book_id: int, r: Redis | None = None):
     """Invalidate reviews cache for a book."""
     await invalidate_entity("reviews", book_id, r)
+
+
+# ========================================
+# TOKEN BLACKLIST (shared with Auth Service)
+# ========================================
+
+
+def make_access_blacklist_key(jti: str) -> str:
+    """Generate Redis key for blacklisted JWT ID.
+
+    IMPORTANT: This key format MUST match the Auth Service's format
+    to share the same blacklist across services.
+    """
+    return f"blacklist:access:{jti}"
+
+
+async def check_access_in_blacklist(jti: str, r: Redis | None = None) -> bool:
+    """Check if a JWT ID is in the blacklist.
+
+    Used to reject tokens that have been revoked (e.g., after role changes,
+    logout, or security events).
+
+    Args:
+        jti: JWT ID to check
+        r: Redis connection
+
+    Returns:
+        True if token is blacklisted (should be rejected)
+    """
+    r = r or await init_redis()
+    key = make_access_blacklist_key(jti)
+    return await r.exists(key) == 1

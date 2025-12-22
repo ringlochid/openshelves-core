@@ -1484,8 +1484,8 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Patterns:** Book validation, list conversion, flush before history
 
-- [ ] `PATCH /books/{id}` - Update book
-  - Permission: owner (if PENDING) OR `books:edit_public_meta` scope (contributor+)
+- [x] `PATCH /books/{id}` - Update book
+  - ermission: owner (if PENDING) OR `books:edit_public_meta` scope (contributor+)
   - Version check: `check_version_conflict(book.version, data.version, "book", book_id)`
   - Snapshot: `old_data = serialize_entity(book)` BEFORE changes
   - Apply updates: title, description, published_year, cover_key, file_key, tags, authors
@@ -1495,7 +1495,7 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
   - Return: `BookDetail`
   - **Key Patterns:** Version check first, serialize before AND after, list conversion
 
-- [ ] `DELETE /books/{id}` - Soft delete
+- [x] `DELETE /books/{id}` - Soft delete
   - Requires: `content:takedown` scope (curator/admin only)
   - Check: not already deleted
   - Update: `is_deleted=True`, `deleted_at=now()`, `is_public=False`, `version += 1`

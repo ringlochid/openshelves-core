@@ -2,6 +2,7 @@
 Tests for direct publish paths (trusted user bypass).
 Covers trusted vs regular user submission flows.
 """
+
 import pytest
 from uuid import uuid4
 from httpx import AsyncClient
@@ -12,7 +13,9 @@ from helpers.jwt_utils import create_test_jwt
 
 
 @pytest.mark.asyncio
-async def test_trusted_user_direct_publish_approved(async_client: AsyncClient, test_db: AsyncSession):
+async def test_trusted_user_direct_publish_approved(
+    async_client: AsyncClient, test_db: AsyncSession
+):
     """Test that trusted user with authors:publish_direct creates APPROVED author."""
     # Create trusted user JWT (trust >= 50, has authors:publish_direct)
     trusted_id = uuid4()
@@ -21,7 +24,7 @@ async def test_trusted_user_direct_publish_approved(async_client: AsyncClient, t
         scopes=["authors:draft", "authors:publish_direct"],
         trust_score=60,
     )
-    
+
     # Create author
     response = await async_client.post(
         "/authors",
@@ -30,9 +33,9 @@ async def test_trusted_user_direct_publish_approved(async_client: AsyncClient, t
             "name": "Direct Publish Author",
             "email": "direct@example.com",
             "bio": "Trusted submitter",
-        }
+        },
     )
-    
+
     assert response.status_code == 201
     data = response.json()
     assert data["status"] == ContentStatus.APPROVED.value
@@ -41,7 +44,9 @@ async def test_trusted_user_direct_publish_approved(async_client: AsyncClient, t
 
 
 @pytest.mark.asyncio
-async def test_regular_user_goes_to_pending(async_client: AsyncClient, test_db: AsyncSession):
+async def test_regular_user_goes_to_pending(
+    async_client: AsyncClient, test_db: AsyncSession
+):
     """Test that regular user without authors:publish_direct creates PENDING author."""
     # Create regular user JWT (no authors:publish_direct scope)
     user_id = uuid4()
@@ -50,7 +55,7 @@ async def test_regular_user_goes_to_pending(async_client: AsyncClient, test_db: 
         scopes=["authors:draft"],
         trust_score=15,
     )
-    
+
     # Create author
     response = await async_client.post(
         "/authors",
@@ -59,9 +64,9 @@ async def test_regular_user_goes_to_pending(async_client: AsyncClient, test_db: 
             "name": "Regular Submission",
             "email": "regular@example.com",
             "bio": "Needs jury approval",
-        }
+        },
     )
-    
+
     assert response.status_code == 201
     data = response.json()
     assert data["status"] == ContentStatus.PENDING.value
@@ -70,57 +75,58 @@ async def test_regular_user_goes_to_pending(async_client: AsyncClient, test_db: 
 
 
 @pytest.mark.asyncio
-async def test_direct_publish_bypasses_jury_queue(async_client: AsyncClient, test_db: AsyncSession):
+async def test_direct_publish_bypasses_jury_queue(
+    async_client: AsyncClient, test_db: AsyncSession
+):
     """Test that direct-published authors don't appear in jury queue."""
     trusted_id = uuid4()
     contributor_id = uuid4()
-    
+
     # Trusted user creates author
     trusted_jwt = create_test_jwt(
         user_id=trusted_id,
         scopes=["authors:draft", "authors:publish_direct"],
         trust_score=60,
     )
-    
+
     response1 = await async_client.post(
         "/authors",
         headers={"Authorization": f"Bearer {trusted_jwt}"},
         json={
             "name": "Direct Author",
             "email": "direct@example.com",
-        }
+        },
     )
     assert response1.status_code == 201
-    
+
     # Regular user creates author
     regular_jwt = create_test_jwt(
         user_id=contributor_id,
         scopes=["authors:draft"],
         trust_score=15,
     )
-    
+
     response2 = await async_client.post(
         "/authors",
         headers={"Authorization": f"Bearer {regular_jwt}"},
         json={
             "name": "Pending Author",
             "email": "pending@example.com",
-        }
+        },
     )
     assert response2.status_code == 201
-    
+
     # Check jury queue (should only have pending author)
     jury_jwt = create_test_jwt(
         user_id=uuid4(),
         scopes=["jury:view"],
         trust_score=15,
     )
-    
+
     response3 = await async_client.get(
-        "/jury/authors",
-        headers={"Authorization": f"Bearer {jury_jwt}"}
+        "/jury/authors", headers={"Authorization": f"Bearer {jury_jwt}"}
     )
-    
+
     assert response3.status_code == 200
     data = response3.json()
     # Should include our pending author
@@ -132,14 +138,19 @@ async def test_direct_publish_bypasses_jury_queue(async_client: AsyncClient, tes
 
 
 @pytest.mark.asyncio
-async def test_direct_publish_triggers_trust_adjustment(async_client: AsyncClient, test_db: AsyncSession, mocker):
-    """Test that direct publish calls trust adjustment for submitter."""
+async def test_direct_publish_does_not_trigger_trust_adjustment(
+    async_client: AsyncClient, test_db: AsyncSession, mocker
+):
+    """Test that direct publish does NOT call trust adjustment (prevents spam exploit).
+
+    Security: Trusted users could otherwise farm trust by repeatedly publishing content.
+    Trust should only be awarded when content goes through jury/curator approval.
+    """
     # Mock the Auth Service call
     mock_adjust_trust = mocker.patch(
-        "routers.author.adjust_trust_for_approval",
-        return_value=None
+        "routers.author.adjust_trust_for_approval", return_value=None
     )
-    
+
     # Create trusted user JWT
     trusted_id = uuid4()
     jwt_token = create_test_jwt(
@@ -147,7 +158,7 @@ async def test_direct_publish_triggers_trust_adjustment(async_client: AsyncClien
         scopes=["authors:draft", "authors:publish_direct"],
         trust_score=60,
     )
-    
+
     # Create author via direct publish
     response = await async_client.post(
         "/authors",
@@ -155,25 +166,10 @@ async def test_direct_publish_triggers_trust_adjustment(async_client: AsyncClien
         json={
             "name": "Direct Publish Author",
             "email": "direct@example.com",
-        }
+        },
     )
-    
+
     assert response.status_code == 201
-    author_id = response.json()["id"]
-    
-    # Verify trust adjustment was called
-    mock_adjust_trust.assert_called_once()
-    # Check call arguments (can be positional or keyword)
-    call_args = mock_adjust_trust.call_args
-    if call_args.args:
-        # Positional args
-        assert call_args.args[0] == trusted_id
-        assert call_args.args[1] == "author"
-        assert call_args.args[2] == author_id
-        assert call_args.args[3] is False
-    else:
-        # Keyword args
-        assert call_args.kwargs["user_id"] == trusted_id
-        assert call_args.kwargs["entity_type"] == "author"
-        assert call_args.kwargs["entity_id"] == author_id
-        assert call_args.kwargs["is_book"] is False
+
+    # Verify trust adjustment was NOT called (exploit prevention)
+    mock_adjust_trust.assert_not_called()

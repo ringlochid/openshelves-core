@@ -2,6 +2,7 @@
 Jury voting router for democratic content approval.
 Implements community voting system for PENDING content.
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ router = APIRouter(prefix="/jury", tags=["Jury Voting"])
 # JURY QUEUE ENDPOINTS
 # ========================================
 
+
 @router.get("/authors", response_model=AuthorListResponse)
 async def list_pending_authors(
     page: int = Query(1, ge=1, description="Page number"),
@@ -44,7 +46,7 @@ async def list_pending_authors(
     """
     List pending authors in jury queue.
     Requires 'jury:view' scope (contributor: trust_score >= 10).
-    
+
     Shows authors awaiting jury votes or curator approval.
     Cached with version-based invalidation (bumped when voting/approval happens).
     """
@@ -60,25 +62,25 @@ async def list_pending_authors(
             Author.is_deleted == False,
         )
     )
-    
+
     # Sorting
     order_col = getattr(Author, sort)
     if order == "desc":
         order_col = order_col.desc()
     query = query.order_by(order_col)
-    
+
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
-    
+
     # Pagination
     offset = (page - 1) * per_page
     query = query.offset(offset).limit(per_page)
-    
+
     # Execute
     result = await db.execute(query)
     authors = result.scalars().all()
-    
+
     response_data = AuthorListResponse(
         items=[AuthorRead.model_validate(a) for a in authors],
         total=total,
@@ -86,10 +88,12 @@ async def list_pending_authors(
         per_page=per_page,
         pages=(total + per_page - 1) // per_page,
     )
-    
+
     # Cache the result
-    await cache.cache_list("jury:authors", params, response_data.model_dump(mode="json"), r=r)
-    
+    await cache.cache_list(
+        "jury:authors", params, response_data.model_dump(mode="json"), r=r
+    )
+
     return response_data
 
 
@@ -103,7 +107,7 @@ async def get_pending_author_detail(
     """
     Get detailed information for a pending author.
     Requires 'jury:view' scope.
-    
+
     Shows full author details plus voting status.
     Uses author cache (invalidated on any author change).
     """
@@ -122,20 +126,19 @@ async def get_pending_author_detail(
         )
         .options(selectinload(Author.books))
     )
-    
+
     result = await db.execute(query)
     author = result.scalar_one_or_none()
-    
+
     if not author:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Pending author not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pending author not found"
         )
-    
+
     # Cache the result
     author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
     await cache.cache_author(author_id, author_dict, r)
-    
+
     return AuthorDetail.model_validate(author)
 
 
@@ -143,40 +146,41 @@ async def get_pending_author_detail(
 # VOTING ENDPOINTS
 # ========================================
 
+
 @router.post("/authors/{author_id}/vote")
 async def vote_on_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
-    r = Depends(get_redis),
+    r=Depends(get_redis),
 ):
     """
     Cast a jury vote on a pending author.
-    
+
     Vote weights:
     - Contributors with 'jury:vote': +1
     - Trusted users with 'jury:vote_weighted': +5
-    
+
     Auto-publishes when vote_score >= 5 (awards +10 trust to submitter).
     """
     # Check if user has voting permissions
     user_scopes = current_user.get("scopes", [])
-    
+
     if "jury:vote" not in user_scopes and "jury:vote_weighted" not in user_scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Missing required scope: jury:vote or jury:vote_weighted"
+            detail="Missing required scope: jury:vote or jury:vote_weighted",
         )
-    
+
     # Calculate vote weight from scopes
     vote_value = calculate_vote_weight(user_scopes)
-    
+
     if vote_value == 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to vote"
+            detail="You don't have permission to vote",
         )
-    
+
     # Verify author exists and is PENDING (lock to prevent concurrent modifications)
     # Eagerly load books relationship for cache invalidation
     query = (
@@ -187,26 +191,24 @@ async def vote_on_author(
     )
     result = await db.execute(query)
     author = result.scalar_one_or_none()
-    
+
     if not author:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Author not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Author not found"
         )
-    
+
     if author.status != ContentStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Can only vote on PENDING content (current status: {author.status})"
+            detail=f"Can only vote on PENDING content (current status: {author.status})",
         )
-    
+
     # Double-check not deleted (race condition guard)
     if author.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Author has been deleted"
+            status_code=status.HTTP_410_GONE, detail="Author has been deleted"
         )
-    
+
     # Cast vote
     try:
         vote_result = await cast_jury_vote(
@@ -219,11 +221,8 @@ async def vote_on_author(
             redis_client=r,  # Pass redis for cache invalidation
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     return {
         "message": "Vote cast successfully",
         "vote_value": vote_value,
@@ -245,13 +244,13 @@ async def retract_vote_on_author(
     """
     # Check if user has voting permissions
     user_scopes = current_user.get("scopes", [])
-    
+
     if "jury:vote" not in user_scopes and "jury:vote_weighted" not in user_scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Missing required scope: jury:vote or jury:vote_weighted"
+            detail="Missing required scope: jury:vote or jury:vote_weighted",
         )
-    
+
     # Retract vote
     try:
         await retract_jury_vote(
@@ -261,10 +260,7 @@ async def retract_vote_on_author(
             entity_id=author_id,
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/authors/{author_id}/votes")
@@ -281,26 +277,26 @@ async def get_author_vote_status(
     query = select(Author).where(Author.id == author_id)
     result = await db.execute(query)
     author = result.scalar_one_or_none()
-    
+
     if not author:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Author not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Author not found"
         )
-    
+
     # Get vote status
     vote_status = await get_vote_status(
         db=db,
         entity_type="author",
         entity_id=author_id,
     )
-    
+
     return vote_status
 
 
 # ========================================
 # BOOK JURY ENDPOINTS
 # ========================================
+
 
 @router.get("/books", response_model=dict)
 async def list_pending_books(
@@ -315,7 +311,7 @@ async def list_pending_books(
     """
     List pending books in jury queue.
     Requires 'jury:view' scope (contributor: trust_score >= 10).
-    
+
     Shows books awaiting jury votes or curator approval.
     """
     # Try cache first
@@ -323,7 +319,7 @@ async def list_pending_books(
     cached = await cache.get_list("jury:books", params, r=r)
     if cached is not None:
         return cached
-    
+
     # Base query - only show PENDING, non-deleted books
     query = select(Book).where(
         and_(
@@ -331,25 +327,25 @@ async def list_pending_books(
             Book.is_deleted == False,
         )
     )
-    
+
     # Sorting
     order_col = getattr(Book, sort)
     if order == "desc":
         query = query.order_by(order_col.desc())
     else:
         query = query.order_by(order_col.asc())
-    
+
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
-    
+
     # Pagination
     offset = (page - 1) * per_page
     query = query.offset(offset).limit(per_page)
-    
+
     result = await db.execute(query)
     books = result.scalars().all()
-    
+
     response = {
         "items": [BookListRead.model_validate(book) for book in books],
         "total": total,
@@ -357,10 +353,10 @@ async def list_pending_books(
         "per_page": per_page,
         "pages": (total + per_page - 1) // per_page,
     }
-    
+
     # Cache the response
     await cache.cache_list("jury:books", params, response, r=r)
-    
+
     return response
 
 
@@ -385,13 +381,12 @@ async def get_pending_book_detail(
     )
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found in jury queue"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found in jury queue"
         )
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -400,7 +395,7 @@ async def vote_on_book(
     book_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
-    r = Depends(get_redis),
+    r=Depends(get_redis),
 ):
     """
     Cast a jury vote on a pending book.
@@ -415,34 +410,34 @@ async def vote_on_book(
     )
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
-    if not book or book.status != ContentStatus.PENDING:
+
+    if not book or book.status != ContentStatus.PENDING or book.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found in jury queue"
+            detail="Book not found in jury queue or is deleted",
         )
-    
+
     # Cast vote (handles weight calculation, duplicate prevention, auto-approval)
     vote_value = calculate_vote_weight(current_user.get("scopes", []))
-    
+
     if vote_value == 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to vote"
+            detail="You don't have permission to vote",
         )
-    
+
     result = await cast_jury_vote(
         db=db,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         entity_type="book",
         entity_id=book_id,
         vote_value=vote_value,
         entity=book,  # Pass eagerly-loaded entity
         redis_client=r,  # Pass redis for cache invalidation
     )
-    
+
     await db.commit()
-    
+
     return {
         "message": "Vote cast successfully",
         "vote_weight": result["vote_weight"],
@@ -462,9 +457,9 @@ async def retract_vote_on_book(
         db=db,
         entity_type="book",
         entity_id=book_id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
     )
-    
+
     await db.commit()
 
 
@@ -480,7 +475,7 @@ async def get_book_vote_status(
         entity_type="book",
         entity_id=book_id,
     )
-    
+
     return {
         "has_voted": status["has_voted"],
         "vote_weight": status["vote_weight"],

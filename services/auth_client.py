@@ -2,6 +2,7 @@
 Client for Auth Service integration.
 Handles trust score adjustments and service-to-service communication.
 """
+
 import logging
 from typing import Any
 from uuid import UUID
@@ -16,48 +17,48 @@ logger = logging.getLogger(__name__)
 
 class AuthServiceClient:
     """Client for communicating with Auth Service."""
-    
+
     def __init__(self):
         self.base_url = settings.AUTH_SERVICE_URL
         self.service_token = settings.SERVICE_API_KEY
         self.timeout = settings.AUTH_SERVICE_TIMEOUT
-        
+
     def _get_headers(self) -> dict[str, str]:
         """Get headers for service-to-service authentication."""
         return {
             "X-Service-Token": self.service_token,
             "Content-Type": "application/json",
         }
-    
+
     async def adjust_user_trust(
         self,
         user_id: UUID,
         delta: int,
         reason: str,
-        metadata: dict[str, Any] | None = None,
+        source: str,
     ) -> dict:
         """
         Adjust user's trust score via Auth Service.
-        
+
         Args:
             user_id: User's UUID
             delta: Amount to adjust (+/- integer)
             reason: Human-readable reason for adjustment
-            metadata: Optional additional context (entity_type, entity_id, etc.)
-            
+            source: Source of the adjustment
+
         Returns:
             Response from Auth Service with new trust score
-            
+
         Raises:
             HTTPException: If Auth Service request fails
         """
-        url = f"{self.base_url}/admin/users/{user_id}/trust/adjust"
+        url = f"{self.base_url}/user/admin/users/{user_id}/trust/adjust"
         payload = {
             "delta": delta,
             "reason": reason,
-            "metadata": metadata or {},
+            "source": source,
         }
-        
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
@@ -66,14 +67,14 @@ class AuthServiceClient:
                     headers=self._get_headers(),
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
                 logger.info(
                     f"Trust adjusted for user {user_id}: {delta:+d} "
-                    f"(reason: {reason}, new_score: {result.get('new_trust_score')})"
+                    f"(reason: {reason}, new_score: {result.get('trust_score')})"
                 )
                 return result
-                
+
         except httpx.TimeoutException:
             logger.error(f"Timeout adjusting trust for user {user_id}")
             raise HTTPException(
@@ -90,49 +91,51 @@ class AuthServiceClient:
                 detail=f"Auth Service error: {e.response.text}",
             )
         except Exception as e:
-            logger.error(f"Unexpected error adjusting trust for user {user_id}: {str(e)}")
+            logger.error(
+                f"Unexpected error adjusting trust for user {user_id}: {str(e)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to adjust trust score",
             )
-    
+
     async def bulk_adjust_trust(
         self,
         adjustments: list[dict[str, Any]],
     ) -> list[dict]:
         """
         Adjust trust scores for multiple users in batch.
-        
+
         Args:
             adjustments: List of dicts with keys: user_id, delta, reason, metadata
-            
+
         Returns:
             List of results from Auth Service
-            
+
         Note:
             This makes parallel requests for better performance.
             Failed adjustments are logged but don't stop processing.
         """
         results = []
-        
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             tasks = []
             for adjustment in adjustments:
                 user_id = adjustment["user_id"]
-                url = f"{self.base_url}/admin/users/{user_id}/trust/adjust"
+                url = f"{self.base_url}/user/admin/users/{user_id}/trust/adjust"
                 payload = {
                     "delta": adjustment["delta"],
                     "reason": adjustment["reason"],
-                    "metadata": adjustment.get("metadata", {}),
+                    "source": adjustment.get("source", "manual"),
                 }
-                
+
                 task = client.post(
                     url,
                     json=payload,
                     headers=self._get_headers(),
                 )
                 tasks.append((user_id, task))
-            
+
             # Execute all requests in parallel
             for user_id, task in tasks:
                 try:
@@ -143,19 +146,21 @@ class AuthServiceClient:
                     logger.error(
                         f"Failed to adjust trust for user {user_id} in batch: {str(e)}"
                     )
-                    results.append({
-                        "user_id": str(user_id),
-                        "success": False,
-                        "error": str(e),
-                    })
-        
+                    results.append(
+                        {
+                            "user_id": str(user_id),
+                            "success": False,
+                            "error": str(e),
+                        }
+                    )
+
         logger.info(f"Bulk trust adjustment completed: {len(results)} operations")
         return results
-    
+
     async def health_check(self) -> bool:
         """
         Check if Auth Service is reachable.
-        
+
         Returns:
             True if Auth Service is healthy, False otherwise
         """
@@ -182,29 +187,25 @@ async def adjust_trust_for_approval(
     """
     Adjust trust score when content is approved.
     Books get double rewards (20 vs 10).
-    
+
     Args:
         user_id: Content submitter's UUID
         entity_type: "author", "book", or "collection"
         entity_id: Entity's ID
         is_book: Whether this is a book (for doubled reward)
-        
+
     Returns:
         Auth Service response
     """
     delta = 20 if is_book else 10
     reason = f"{entity_type.capitalize()} approved"
-    metadata = {
-        "entity_type": entity_type,
-        "entity_id": entity_id,
-        "action": "APPROVED",
-    }
-    
+    source = "upload"
+
     return await auth_service_client.adjust_user_trust(
         user_id=user_id,
         delta=delta,
         reason=reason,
-        metadata=metadata,
+        source=source,
     )
 
 
@@ -218,31 +219,41 @@ async def adjust_trust_for_rejection(
     """
     Adjust trust score when content is rejected.
     Books get double penalties (-10 vs -5).
-    
+
     Args:
         user_id: Content submitter's UUID
         entity_type: "author", "book", or "collection"
         entity_id: Entity's ID
         reason: Rejection reason
         is_book: Whether this is a book (for doubled penalty)
-        
+
     Returns:
         Auth Service response
     """
     delta = -10 if is_book else -5
     reason_text = f"{entity_type.capitalize()} rejected: {reason}"
-    metadata = {
-        "entity_type": entity_type,
-        "entity_id": entity_id,
-        "action": "REJECTED",
-        "rejection_reason": reason,
-    }
-    
+    source = "upload"
+
     return await auth_service_client.adjust_user_trust(
         user_id=user_id,
         delta=delta,
         reason=reason_text,
-        metadata=metadata,
+        source=source,
+    )
+
+
+async def adjust_trust_for_review(
+    user_id: UUID,
+    delta: int,
+):
+    reason = "Review helpfulness vote change"
+    source = "review"
+
+    return await auth_service_client.adjust_user_trust(
+        user_id=user_id,
+        delta=delta,
+        reason=reason,
+        source=source,
     )
 
 
@@ -254,31 +265,31 @@ async def adjust_trust_for_social_bonus(
 ) -> dict:
     """
     ⚠️ DEPRECATED - DO NOT USE ⚠️
-    
+
     This function is kept for reference only and should NEVER be called.
-    
+
     SECURITY DECISION (Phase 2.4):
     Social engagement trust rewards have been REMOVED to prevent exploit loops.
     Users could repeatedly follow/unfollow or subscribe/unsubscribe to farm
     unlimited trust points.
-    
+
     Trust is now earned ONLY through:
     - Content approval (+10 for authors/collections, +20 for books)
     - Review helpfulness voting (±1 per vote, max ±5 per review)
-    
+
     If you need to award trust, use:
     - adjust_trust_for_approval() for content approval
     - adjust_trust_for_rejection() for content rejection
-    
+
     Original behavior (REMOVED):
     +3 per action, capped at +6 per entity by Auth Service.
-    
+
     Args:
         user_id: Content creator's UUID
         action: "follow" or "subscribe"
         entity_type: "author", "book", or "collection"
         entity_id: Entity's ID
-        
+
     Returns:
         Error indicating this function should not be used
     """
@@ -286,7 +297,7 @@ async def adjust_trust_for_social_bonus(
         "adjust_trust_for_social_bonus() is DEPRECATED and should not be called. "
         "Social engagement trust rewards were removed in Phase 2.4 to prevent exploit loops."
     )
-    
+
     # Old implementation (DO NOT RESTORE):
     # reason = f"{entity_type.capitalize()} {action}ed"
     # metadata = {
@@ -295,7 +306,7 @@ async def adjust_trust_for_social_bonus(
     #     "action": action,
     #     "bonus_type": "social_engagement",
     # }
-    # 
+    #
     # return await auth_service_client.adjust_user_trust(
     #     user_id=user_id,
     #     delta=3,
@@ -308,21 +319,51 @@ async def validate_user_exists(user_id: UUID) -> bool:
     """
     Check if a user exists in the Auth Service.
     Used to validate linked_user_id before associating with author.
-    
+
     Args:
         user_id: User's UUID to validate
-        
+
     Returns:
-        True if user exists, False otherwise
+        True if user exists and is valid
+
+    Raises:
+        HTTPException: If user doesn't exist or is in invalid state
     """
     try:
-        url = f"{auth_service_client.base_url}/users/{user_id}/trust"
+        url = f"{auth_service_client.base_url}/user/check/{user_id}"
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(
                 url,
                 headers=auth_service_client._get_headers(),
             )
-            return response.status_code == 200
+            # Check for HTTP errors (401, 429, 500, etc.)
+            response.raise_for_status()
+
+            user_data = response.json()
+            if user_data.get("exists") is False:
+                raise HTTPException(status_code=400, detail="User does not exist")
+            if user_data.get("is_verified") is False:
+                raise HTTPException(status_code=400, detail="User is not verified")
+            if user_data.get("is_active") is False:
+                raise HTTPException(status_code=400, detail="User is not active")
+            if user_data.get("is_locked") is True:
+                raise HTTPException(status_code=400, detail="User is locked")
+            if user_data.get("is_blacklisted") is True:
+                raise HTTPException(status_code=400, detail="User is blacklisted")
+            return True
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions as-is
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Auth Service returned {e.response.status_code} for user {user_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Auth Service unavailable",
+        )
     except Exception as e:
         logger.warning(f"Failed to validate user {user_id}: {str(e)}")
-        return False
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to validate user",
+        )

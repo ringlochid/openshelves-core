@@ -2,6 +2,7 @@
 Book router with wiki-style workflow, RBAC, and advanced search.
 Implements Phase 3 book and review management endpoints.
 """
+
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,12 +12,21 @@ from sqlalchemy.orm import selectinload
 
 from database import get_async_db
 from dependencies.auth import get_current_user, require_scope, require_min_trust
-from models import Book, Author, Review, BookSubscription, ReviewVote, ContentStatus, VoteType, EditHistory
+from models import (
+    Book,
+    Author,
+    Review,
+    BookSubscription,
+    ReviewVote,
+    ContentStatus,
+    VoteType,
+    EditHistory,
+)
 from schemas.book import (
     BookCreate,
     BookUpdate,
     BookDetail,
-    BookListRead,
+    BookListItem,
     PaginatedBooksCursor,
     BookSortControl,
     SortField,
@@ -36,7 +46,11 @@ from helpers.edit_history import (
 )
 from helpers.cursor import encode_cursor, decode_cursor
 from helpers.jury import clear_jury_votes
-from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection, auth_service_client
+from services.auth_client import (
+    adjust_trust_for_approval,
+    adjust_trust_for_rejection,
+    adjust_trust_for_review,
+)
 import cache
 from cache import Redis
 
@@ -47,6 +61,8 @@ router = APIRouter(prefix="/books", tags=["Books"])
 # PUBLIC ENDPOINTS (No Auth Required)
 # ========================================
 
+
+# TODO: Add caching for popular pattern: limits, sort
 @router.get("", response_model=PaginatedBooksCursor)
 async def list_books(
     q: str | None = Query(None, description="Full-text search query"),
@@ -56,12 +72,14 @@ async def list_books(
     after: int | None = Query(None, description="Filter by year (after)"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
-    sort: list[str] = Query(default=[], description="Sort like 'similarity:desc', 'title:asc'"),
+    sort: list[str] = Query(
+        default=[], description="Sort like 'similarity:desc', 'title:asc'"
+    ),
     db: AsyncSession = Depends(get_async_db),
 ):
     """
     List approved, public books with advanced search.
-    
+
     - Full-text search with `q` parameter (uses PostgreSQL search_tsv)
     - Trigram similarity fallback if FTS finds nothing
     - Multi-field sorting (similarity, title, year, subscribers)
@@ -72,7 +90,11 @@ async def list_books(
     sort_controls = []
     if q and not sort:
         # Default to similarity sort when searching
-        sort_controls.append(BookSortControl(sort_field=SortField.by_similarity, sort_direction=SortDirection.desc))
+        sort_controls.append(
+            BookSortControl(
+                sort_field=SortField.by_similarity, sort_direction=SortDirection.desc
+            )
+        )
     else:
         for s in sort:
             if ":" in s:
@@ -81,22 +103,22 @@ async def list_books(
                     sort_controls.append(
                         BookSortControl(
                             sort_field=SortField(field),
-                            sort_direction=SortDirection(direction)
+                            sort_direction=SortDirection(direction),
                         )
                     )
                 except ValueError:
                     continue
-    
+
     # Base conditions
     base_conditions = and_(
         Book.status == ContentStatus.APPROVED,
         Book.is_public == True,
         Book.is_deleted == False,
     )
-    
+
     # Build query
     stmt = select(Book).where(base_conditions).options(selectinload(Book.authors))
-    
+
     # Apply filters
     if title:
         stmt = stmt.where(Book.title == title)
@@ -106,7 +128,7 @@ async def list_books(
         stmt = stmt.where(Book.year <= before)
     if after:
         stmt = stmt.where(Book.year >= after)
-    
+
     # Full-text search with scoring
     total_score = None
     if q:
@@ -114,42 +136,42 @@ async def list_books(
         fts_score = func.ts_rank(Book.search_tsv, tsq)
         title_sim = func.similarity(Book.title, q)
         author_sim = func.coalesce(func.max(func.similarity(Author.name, q)), 0.0)
-        
+
         # Weighted scoring: 60% FTS, 25% title similarity, 15% author similarity
         total_score = 0.6 * fts_score + 0.25 * title_sim + 0.15 * author_sim
-        
+
         # Try FTS first
         fts_stmt = (
-            stmt
-            .outerjoin(Book.authors)
+            stmt.outerjoin(Book.authors)
             .group_by(Book.id)
             .add_columns(total_score.label("total_score"))
             .having(total_score > 0.01)  # Filter out irrelevant results
         )
-        
+
         # Check if FTS returns results
-        fts_count_result = await db.execute(select(func.count()).select_from(fts_stmt.subquery()))
+        fts_count_result = await db.execute(
+            select(func.count()).select_from(fts_stmt.subquery())
+        )
         fts_count = fts_count_result.scalar()
-        
+
         if fts_count == 0:
             # Fallback to pure trigram similarity (no FTS threshold)
             trigram_score = 0.6 * title_sim + 0.4 * author_sim
             total_score = trigram_score  # Ensure ordering/cursor use trigram score
             stmt = (
-                stmt
-                .outerjoin(Book.authors)
+                stmt.outerjoin(Book.authors)
                 .group_by(Book.id)
                 .add_columns(trigram_score.label("total_score"))
                 .having(trigram_score > 0.1)  # Lower threshold for trigram
             )
         else:
             stmt = fts_stmt
-    
+
     # Apply sorting
     order_exprs = []
     primary_sort = sort_controls[0] if sort_controls else None
     by_similarity = primary_sort and primary_sort.sort_field == SortField.by_similarity
-    
+
     for sort_ctrl in sort_controls:
         if sort_ctrl.sort_field == SortField.by_similarity:
             if total_score is not None:
@@ -164,52 +186,53 @@ async def list_books(
             col = Book.subscriber_count
         else:
             continue
-        
-        order_exprs.append(desc(col) if sort_ctrl.sort_direction == SortDirection.desc else asc(col))
-    
+
+        order_exprs.append(
+            desc(col) if sort_ctrl.sort_direction == SortDirection.desc else asc(col)
+        )
+
     # Always add ID as tiebreaker
     order_exprs.append(Book.id.asc())
     stmt = stmt.order_by(*order_exprs)
-    
+
     # Handle cursor pagination
     if cursor and by_similarity:
         data = decode_cursor(cursor)
         last_score = data["score"]
         last_id = data["id"]
-        
+
         # Use HAVING for similarity (uses aggregated author similarity)
         stmt = stmt.having(
             or_(
                 total_score < last_score,
-                and_(total_score == last_score, Book.id > last_id)
+                and_(total_score == last_score, Book.id > last_id),
             )
         )
-    
+
     # Fetch limit + 1 to detect next page
     stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)
     rows = result.unique().all()
-    
+
     # Separate items from pagination check
     items_rows = rows[:limit]
     has_next = len(rows) > limit
-    
+
     books = [r[0] for r in items_rows]
-    
+
     # Generate next cursor
     next_cursor = None
     if has_next and by_similarity and items_rows:
         last_row = items_rows[-1]
         last_book: Book = last_row[0]
         last_total_score = last_row[-1]  # total_score is last selected column
-        
-        next_cursor = encode_cursor({
-            "score": float(last_total_score),
-            "id": last_book.id
-        })
-    
+
+        next_cursor = encode_cursor(
+            {"score": float(last_total_score), "id": last_book.id}
+        )
+
     return PaginatedBooksCursor(
-        items=[BookListRead.model_validate(b) for b in books],
+        items=[BookListItem.model_validate(b) for b in books],
         next_cursor=next_cursor,
     )
 
@@ -226,9 +249,13 @@ async def get_book(
     """
     # Try cache first
     cached = await cache.get_book(book_id, r)
-    if cached:
+    if (
+        cached
+        and cached.get("status") == "APPROVED"
+        and cached.get("is_public") is True
+    ):
         return cached
-    
+
     query = (
         select(Book)
         .where(
@@ -242,20 +269,19 @@ async def get_book(
         .options(selectinload(Book.authors))
         .options(selectinload(Book.reviews))
     )
-    
+
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found or not public"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found or not public"
         )
-    
+
     # Cache the result
     book_dict = BookDetail.model_validate(book).model_dump(mode="json")
     await cache.cache_book(book_id, book_dict, r)
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -268,7 +294,7 @@ async def get_book_reviews(
     """
     Get all reviews for a book, ordered by helpfulness.
     Returns empty list if book not found (not 404).
-    
+
     Cached for 5 minutes. Invalidated when:
     - Review is created, updated, or deleted
     - Review votes change (helpful/unhelpful counts)
@@ -277,7 +303,7 @@ async def get_book_reviews(
     cached = await cache.get_reviews(book_id, r)
     if cached is not None:
         return [ReviewRead.model_validate(review) for review in cached]
-    
+
     # Query database
     query = (
         select(Review)
@@ -289,20 +315,23 @@ async def get_book_reviews(
         )
         .order_by(Review.helpful_count.desc(), Review.created_at.desc())
     )
-    
+
     result = await db.execute(query)
     reviews = result.scalars().all()
-    
+
     # Cache the result
-    reviews_data = [ReviewRead.model_validate(r).model_dump(mode="json") for r in reviews]
+    reviews_data = [
+        ReviewRead.model_validate(r).model_dump(mode="json") for r in reviews
+    ]
     await cache.cache_reviews(book_id, reviews_data, r)
-    
+
     return [ReviewRead.model_validate(r) for r in reviews]
 
 
 # ========================================
 # AUTHENTICATED ENDPOINTS
 # ========================================
+
 
 @router.post("", response_model=BookDetail, status_code=status.HTTP_201_CREATED)
 async def create_book(
@@ -313,7 +342,7 @@ async def create_book(
 ):
     """
     Create a new book submission (PENDING status).
-    
+
     Direct publish detection:
     - If user has `books:publish_direct` scope: APPROVED + is_public=True
     - Otherwise: PENDING + is_public=False (enters jury queue)
@@ -321,7 +350,7 @@ async def create_book(
     # Check for direct publish privilege
     user_scopes = current_user.get("scopes", [])
     has_direct_publish = "books:publish_direct" in user_scopes
-    
+
     # Validate authors exist and are approved
     author_objs = []
     if data.author_ids:
@@ -334,13 +363,13 @@ async def create_book(
         )
         result = await db.execute(author_query)
         author_objs = list(result.scalars().all())
-        
+
         if len(author_objs) != len(data.author_ids):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Some author IDs are invalid or not approved"
+                detail="Some author IDs are invalid or not approved",
             )
-    
+
     # Create book
     book = Book(
         title=data.title,
@@ -350,37 +379,37 @@ async def create_book(
         cover_key=data.cover_key,
         file_key=data.file_key,
         file_format=data.file_format,
-        created_by_user_id=UUID(current_user["user_id"]),
+        created_by_user_id=current_user["user_id"],
         status=ContentStatus.APPROVED if has_direct_publish else ContentStatus.PENDING,
         is_public=has_direct_publish,
         version=1,
     )
-    
+
     book.authors = author_objs
     db.add(book)
     await db.flush()  # Get book.id before history recording
-    
+
     # Record creation in edit history
     await record_create(
         db=db,
         entity_type="book",
         entity_id=book.id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         data=serialize_entity(book),
     )
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Cache the newly created book for immediate reads
     book_dict = BookDetail.model_validate(book).model_dump(mode="json")
     await cache.cache_book(book.id, book_dict, r)
-    
+
     # Invalidate list caches
     await cache.bump_cache_version("books:list", r)
     for author in author_objs:
         await cache.invalidate_author(author.id, r, book_ids=[book.id])
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -394,40 +423,37 @@ async def update_book(
 ):
     """
     Update book metadata with optimistic locking.
-    
+
     Permissions:
     - Owner: if book is PENDING
     - Contributor+: if book is APPROVED (wiki-style editing with books:edit_public_meta)
     """
     # Load book with relationships
-    query = (
-        select(Book)
-        .where(Book.id == book_id)
-        .options(selectinload(Book.authors))
-    )
+    query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     # Check if deleted
     if book.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Book has been deleted"
+            status_code=status.HTTP_410_GONE, detail="Book has been deleted"
         )
-    
+
     # Permission check
-    user_id = UUID(current_user["user_id"])
+    user_id = current_user["user_id"]
     user_scopes = current_user.get("scopes", [])
     is_owner = book.created_by_user_id == user_id
     has_update_own = "books:update_own" in user_scopes
-    is_wiki_editor = "books:edit_public_meta" in user_scopes and book.status == ContentStatus.APPROVED
-    
+    is_wiki_editor = (
+        "books:edit_public_meta" in user_scopes
+        and book.status == ContentStatus.APPROVED
+    )
+
     # Permission logic:
     # 1. Owner with books:update_own → can update own book (pending or approved)
     # 2. Non-owner with books:edit_public_meta → can update ANY APPROVED book (wiki mode)
@@ -440,16 +466,16 @@ async def update_book(
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions. Owner needs 'books:update_own' or wiki-editor needs 'books:edit_public_meta' (APPROVED only)"
+            detail="Insufficient permissions. Owner needs 'books:update_own' or wiki-editor needs 'books:edit_public_meta' (APPROVED only)",
         )
-    
+
     # Version conflict check
     check_version_conflict(book.version, data.version, "book", book_id)
-    
+
     # Capture OLD state and author IDs for cache invalidation
     old_data = serialize_entity(book)
     previous_author_ids = {author.id for author in book.authors}
-    
+
     # Apply updates
     if data.title is not None:
         book.title = data.title
@@ -465,7 +491,7 @@ async def update_book(
         book.file_key = data.file_key
     if data.file_format is not None:
         book.file_format = data.file_format
-    
+
     # Update authors if provided
     if data.author_ids is not None:
         author_query = select(Author).where(
@@ -477,21 +503,21 @@ async def update_book(
         )
         result = await db.execute(author_query)
         author_objs = list(result.scalars().all())
-        
+
         if len(author_objs) != len(data.author_ids):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Some author IDs are invalid or not approved"
+                detail="Some author IDs are invalid or not approved",
             )
-        
+
         book.authors = author_objs
-    
+
     # Increment version and track editor
     old_version = book.version
     book.version += 1
     book.last_edited_by = user_id
     book.last_edited_at = datetime.now(timezone.utc)
-    
+
     # Record update in history
     await record_update(
         db=db,
@@ -503,19 +529,19 @@ async def update_book(
         new_version=book.version,
         old_version=old_version,
     )
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
     affected_author_ids = list(previous_author_ids | new_author_ids)
-    
+
     for author_id in affected_author_ids:
         await cache.invalidate_author(author_id, r, book_ids=[book.id])
     await cache.invalidate_book(book_id, r)
     await cache.bump_cache_version("books:list", r)
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -535,30 +561,28 @@ async def delete_own_book(
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     # Check ownership
     if book.created_by_user_id != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own books"
+            detail="You can only delete your own books",
         )
-    
+
     if book.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Book is already deleted"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already deleted"
         )
-    
+
     # Save old data for history
     old_data = serialize_entity(book)
     old_version = book.version
-    
+
     # Soft delete
     book.is_deleted = True
     book.deleted_at = datetime.now(timezone.utc)
@@ -566,7 +590,7 @@ async def delete_own_book(
     book.version += 1
     book.last_edited_by = current_user["user_id"]
     book.last_edited_at = datetime.now(timezone.utc)
-    
+
     # Record deletion in edit history
     await record_delete(
         db=db,
@@ -576,9 +600,9 @@ async def delete_own_book(
         data=old_data,
         version=old_version,
     )
-    
+
     await db.commit()
-    
+
     # Invalidate caches - pass author_ids to avoid DB query
     author_ids = [author.id for author in book.authors] if book.authors else []
     for author_id in author_ids:
@@ -601,41 +625,39 @@ async def delete_book(
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     if book.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Book is already deleted"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already deleted"
         )
-    
+
     # Save old data for history
     old_data = serialize_entity(book)
     old_version = book.version
-    
+
     # Soft delete
     book.is_deleted = True
     book.deleted_at = datetime.now(timezone.utc)
     book.is_public = False
     book.version += 1
-    
+
     # Record deletion in history
     await record_delete(
         db=db,
         entity_type="book",
         entity_id=book.id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         data=old_data,
         version=old_version,
     )
-    
+
     await db.commit()
-    
+
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
     for author_id in author_ids:
@@ -654,35 +676,37 @@ async def rollback_book_version(
 ):
     """
     Rollback book to a previous version from edit history.
-    
+
     Permissions: owner (if PENDING) or wiki-editor (if APPROVED)
     """
     # Load book
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     # Permission check
-    user_id = UUID(current_user["user_id"])
+    user_id = current_user["user_id"]
     user_scopes = current_user.get("scopes", [])
-    is_owner = book.created_by_user_id == user_id
-    is_wiki_editor = "books:edit_public_meta" in user_scopes and book.status == ContentStatus.APPROVED
-    
+    is_owner = book.created_by_user_id == user_id and "books:update_own" in user_scopes
+    is_wiki_editor = (
+        "books:edit_public_meta" in user_scopes
+        and book.status == ContentStatus.APPROVED
+    )
+
     if not (is_owner or is_wiki_editor):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to rollback this book"
+            detail="Not authorized to rollback this book",
         )
-    
+
     # Optimistic locking: check caller's version matches current version
     check_version_conflict(book.version, data.version, "book", book_id)
-    
+
     # Find target version in history
     history_query = select(EditHistory).where(
         and_(
@@ -693,32 +717,32 @@ async def rollback_book_version(
     )
     history_result = await db.execute(history_query)
     history_record = history_result.scalar_one_or_none()
-    
+
     if not history_record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {data.target_version} not found in history"
+            detail=f"Version {data.target_version} not found in history",
         )
-    
+
     # Check version conflict (cannot rollback forward)
     if data.target_version >= book.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot rollback to version {data.target_version} (current: {book.version})"
+            detail=f"Cannot rollback to version {data.target_version} (current: {book.version})",
         )
-    
+
     # Capture OLD state and author IDs
     old_data = serialize_entity(book)
     previous_author_ids = {author.id for author in book.authors}
-    
+
     # Restore data from history
     restored_data = history_record.new_data
     if not restored_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Version {data.target_version} has no data to restore"
+            detail=f"Version {data.target_version} has no data to restore",
         )
-    
+
     book.title = restored_data.get("title", book.title)
     book.year = restored_data.get("year")
     book.description = restored_data.get("description")
@@ -726,7 +750,7 @@ async def rollback_book_version(
     book.cover_key = restored_data.get("cover_key")
     book.file_key = restored_data.get("file_key")
     book.file_format = restored_data.get("file_format")
-    
+
     # Restore authors (handle deleted authors gracefully)
     restored_author_ids = restored_data.get("author_ids", [])
     if restored_author_ids:
@@ -738,21 +762,21 @@ async def rollback_book_version(
         )
         result = await db.execute(author_query)
         author_objs = list(result.scalars().all())
-        
+
         # Warn if some authors are missing
         found_ids = {a.id for a in author_objs}
         missing_ids = set(restored_author_ids) - found_ids
         if missing_ids:
             print(f"WARNING: Rollback skipped deleted authors: {missing_ids}")
-        
+
         book.authors = author_objs
-    
+
     # Increment version
     old_version = book.version
     book.version += 1
     book.last_edited_by = user_id
     book.last_edited_at = datetime.now(timezone.utc)
-    
+
     # Record rollback in history
     await record_update(
         db=db,
@@ -764,19 +788,19 @@ async def rollback_book_version(
         new_version=book.version,
         old_version=old_version,
     )
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
     affected_author_ids = list(previous_author_ids | new_author_ids)
-    
+
     for author_id in affected_author_ids:
         await cache.invalidate_author(author_id, r, book_ids=[book.id])
     await cache.invalidate_book(book_id, r)
     await cache.bump_cache_version("books:list", r)
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -794,66 +818,67 @@ async def recover_deleted_book(
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     if not book.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Book is not deleted"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Book is not deleted"
         )
-    
+
     # Check 24-hour window
     if book.deleted_at:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         if book.deleted_at < cutoff:
             raise HTTPException(
                 status_code=status.HTTP_410_GONE,
-                detail="Book deleted more than 24 hours ago, cannot recover"
+                detail="Book deleted more than 24 hours ago, cannot recover",
             )
-    
+
     # Save old state
     old_data = serialize_entity(book)
     old_version = book.version
-    
+
     # Recover
     book.is_deleted = False
     book.deleted_at = None
-    book.is_public = book.status == ContentStatus.APPROVED  # Restore visibility based on approval
+    book.is_public = (
+        book.status == ContentStatus.APPROVED
+    )  # Restore visibility based on approval
     book.version += 1
-    
+
     # Record recovery in history
     await record_update(
         db=db,
         entity_type="book",
         entity_id=book.id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         old_data=old_data,
         new_data=serialize_entity(book),
         new_version=book.version,
         old_version=old_version,
     )
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
     for author_id in author_ids:
         await cache.invalidate_author(author_id, r, book_ids=[book.id])
     await cache.invalidate_book(book_id, r)
     await cache.bump_cache_version("books:list", r)
-    
+
     return BookDetail.model_validate(book)
 
 
 # ========================================
 # CURATOR/ADMIN ENDPOINTS
 # ========================================
+
 
 @router.post("/{book_id}/approve", response_model=BookDetail)
 async def approve_book(
@@ -869,46 +894,44 @@ async def approve_book(
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     if book.status == ContentStatus.APPROVED:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Book is already approved"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already approved"
         )
-    
+
     # Save old state
     old_data = serialize_entity(book)
     old_version = book.version
-    
+
     # Approve
     book.status = ContentStatus.APPROVED
     book.is_public = True
     book.version += 1
-    
+
     # Record approval in history
     await record_approval(
         db=db,
         entity_type="book",
         entity_id=book.id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         old_data=old_data,
         new_data=serialize_entity(book),
         new_version=book.version,
         old_version=old_version,
     )
-    
+
     # Clear any pending jury votes
     await clear_jury_votes(db, "book", book.id)
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Award trust to submitter (+20 for books, doubled reward)
     try:
         await adjust_trust_for_approval(
@@ -919,14 +942,14 @@ async def approve_book(
         )
     except Exception as e:
         print(f"Warning: Failed to adjust trust for book approval: {e}")
-    
+
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
     for author_id in author_ids:
         await cache.invalidate_author(author_id, r, book_ids=[book.id])
     await cache.invalidate_book(book_id, r)
     await cache.bump_cache_version("books:list", r)
-    
+
     return BookDetail.model_validate(book)
 
 
@@ -945,46 +968,44 @@ async def reject_book(
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    
+
     if book.status == ContentStatus.REJECTED:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Book is already rejected"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already rejected"
         )
-    
+
     # Save old state
     old_data = serialize_entity(book)
     old_version = book.version
-    
+
     # Reject
     book.status = ContentStatus.REJECTED
     book.is_public = False
     book.version += 1
-    
+
     # Record rejection in history
     await record_rejection(
         db=db,
         entity_type="book",
         entity_id=book.id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         old_data=old_data,
         new_data=serialize_entity(book),
         new_version=book.version,
         old_version=old_version,
     )
-    
+
     # Clear any pending jury votes
     await clear_jury_votes(db, "book", book.id)
-    
+
     await db.commit()
     await db.refresh(book, ["authors", "reviews"])
-    
+
     # Penalize submitter (-10 for books, doubled penalty)
     try:
         await adjust_trust_for_rejection(
@@ -996,20 +1017,21 @@ async def reject_book(
         )
     except Exception as e:
         print(f"Warning: Failed to adjust trust for book rejection: {e}")
-    
+
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
     for author_id in author_ids:
         await cache.invalidate_author(author_id, r, book_ids=[book.id])
     await cache.invalidate_book(book_id, r)
     await cache.bump_cache_version("books:list", r)
-    
+
     return BookDetail.model_validate(book)
 
 
 # ========================================
 # SOCIAL ENDPOINTS
 # ========================================
+
 
 @router.post("/{book_id}/subscribe", status_code=status.HTTP_201_CREATED)
 async def subscribe_to_book(
@@ -1033,18 +1055,18 @@ async def subscribe_to_book(
     )
     result = await db.execute(query)
     book = result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found or not approved"
+            detail="Book not found or not approved",
         )
-    
+
     # Check if already subscribed
     existing = await db.execute(
         select(BookSubscription).where(
             and_(
-                BookSubscription.user_id == UUID(current_user["user_id"]),
+                BookSubscription.user_id == current_user["user_id"],
                 BookSubscription.book_id == book_id,
             )
         )
@@ -1052,26 +1074,26 @@ async def subscribe_to_book(
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Already subscribed to this book"
+            detail="Already subscribed to this book",
         )
-    
+
     # Create subscription
     subscription = BookSubscription(
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
         book_id=book_id,
     )
     db.add(subscription)
-    
+
     # Increment subscriber count
     book.subscriber_count += 1
-    
+
     await db.commit()
-    
+
     # Invalidate cache
     await cache.invalidate_book(book_id, r)
-    
+
     # NOTE: NO trust reward - prevents subscribe/unsubscribe exploit loop
-    
+
     return {"message": "Successfully subscribed to book"}
 
 
@@ -1089,31 +1111,31 @@ async def unsubscribe_from_book(
     # Find subscription
     query = select(BookSubscription).where(
         and_(
-            BookSubscription.user_id == UUID(current_user["user_id"]),
+            BookSubscription.user_id == current_user["user_id"],
             BookSubscription.book_id == book_id,
         )
     )
     result = await db.execute(query)
     subscription = result.scalar_one_or_none()
-    
+
     if not subscription:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="You are not subscribed to this book"
+            detail="You are not subscribed to this book",
         )
-    
+
     # Get book to decrement count
     book_query = select(Book).where(Book.id == book_id)
     book_result = await db.execute(book_query)
     book = book_result.scalar_one_or_none()
-    
+
     if book:
         book.subscriber_count = max(0, book.subscriber_count - 1)
-    
+
     # Delete subscription
     await db.delete(subscription)
     await db.commit()
-    
+
     # Invalidate cache
     if book:
         await cache.invalidate_book(book_id, r)
@@ -1123,7 +1145,10 @@ async def unsubscribe_from_book(
 # REVIEW ENDPOINTS
 # ========================================
 
-@router.post("/{book_id}/reviews", response_model=ReviewRead, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/{book_id}/reviews", response_model=ReviewRead, status_code=status.HTTP_201_CREATED
+)
 async def create_review(
     book_id: int,
     data: ReviewCreate,
@@ -1150,13 +1175,13 @@ async def create_review(
     )
     book_result = await db.execute(book_query)
     book = book_result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found or not approved"
+            detail="Book not found or not approved",
         )
-    
+
     # Check for duplicate review (unique constraint)
     user_id = current_user["user_id"]  # Already UUID from auth dependency
     existing = await db.execute(
@@ -1170,9 +1195,9 @@ async def create_review(
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You have already reviewed this book"
+            detail="You have already reviewed this book",
         )
-    
+
     # Note: data.book_id from schema is ignored, using book_id from path
     # Create review
     review = Review(
@@ -1184,15 +1209,15 @@ async def create_review(
         unhelpful_count=0,
         trust_awarded=0,
     )
-    
+
     db.add(review)
     await db.commit()
     await db.refresh(review)
-    
+
     # Invalidate book cache (with author IDs for cascading)
     author_ids = [author.id for author in book.authors]
     await cache.invalidate_book(book_id, r, author_ids=author_ids)
-    
+
     return ReviewRead.model_validate(review)
 
 
@@ -1211,34 +1236,33 @@ async def update_review(
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
     review = result.scalar_one_or_none()
-    
+
     if not review:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
         )
-    
+
     # Check ownership
     if review.user_id != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to edit this review"
+            detail="Not authorized to edit this review",
         )
-    
+
     # Apply updates
     if data.rating is not None:
         review.rating = data.rating
     if data.comment is not None:
         review.comment = data.comment
-    
+
     review.updated_at = datetime.now(timezone.utc)
-    
+
     await db.commit()
     await db.refresh(review)
-    
+
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
-    
+
     return ReviewRead.model_validate(review)
 
 
@@ -1256,30 +1280,31 @@ async def delete_review(
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
     review = result.scalar_one_or_none()
-    
+
     if not review:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
         )
-    
+
     # Permission check
     user_scopes = current_user.get("scopes", [])
     is_owner = review.user_id == current_user["user_id"]
-    can_delete_any = "content:delete_any" in user_scopes or "content:takedown" in user_scopes
-    
+    can_delete_any = (
+        "content:delete_any" in user_scopes or "content:takedown" in user_scopes
+    )
+
     if not (is_owner or can_delete_any):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this review"
+            detail="Not authorized to delete this review",
         )
-    
+
     # Soft delete
     review.is_deleted = True
     review.deleted_at = datetime.now(timezone.utc)
-    
+
     await db.commit()
-    
+
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
 
@@ -1294,7 +1319,7 @@ async def vote_on_review(
 ):
     """
     Vote on review helpfulness (trusted+ users only).
-    
+
     Awards trust to reviewer:
     - Helpful: +1 trust
     - Unhelpful: -1 trust
@@ -1304,19 +1329,17 @@ async def vote_on_review(
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
     review = result.scalar_one_or_none()
-    
+
     if not review:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
         )
-    
+
     if review.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Review has been deleted"
+            status_code=status.HTTP_410_GONE, detail="Review has been deleted"
         )
-    
+
     # Check if already voted
     user_id = current_user["user_id"]  # Already UUID from auth dependency
     existing_vote = await db.execute(
@@ -1328,10 +1351,10 @@ async def vote_on_review(
         )
     )
     existing = existing_vote.scalar_one_or_none()
-    
+
     # Store old trust value for calculating actual change
     old_trust_awarded = review.trust_awarded
-    
+
     if existing:
         # Vote change logic
         if existing.vote == data.vote:
@@ -1341,7 +1364,7 @@ async def vote_on_review(
                 "unhelpful_count": review.unhelpful_count,
                 "trust_delta": 0,
             }
-        
+
         # Change vote: reverse previous and apply new
         if existing.vote == VoteType.HELPFUL:
             review.helpful_count -= 1
@@ -1349,7 +1372,7 @@ async def vote_on_review(
         else:
             review.unhelpful_count -= 1
             review.helpful_count += 1
-        
+
         existing.vote = data.vote  # VoteType enum from schema
     else:
         # New vote (data.vote is already VoteType from schema)
@@ -1359,44 +1382,38 @@ async def vote_on_review(
             vote=data.vote,
         )
         db.add(vote)
-        
+
         if data.vote == VoteType.HELPFUL:
             review.helpful_count += 1
         else:
             review.unhelpful_count += 1
-    
+
     # Commit vote count changes first
     await db.commit()
     await db.refresh(review)
-    
+
     # Calculate trust from vote balance (helpful - unhelpful), capped at ±5
     new_trust_awarded = max(-5, min(5, review.helpful_count - review.unhelpful_count))
     delta = new_trust_awarded - old_trust_awarded
-    
+
     # Update trust_awarded if it changed
     if delta != 0:
         review.trust_awarded = new_trust_awarded
         await db.commit()
         await db.refresh(review)
-        
+
         # Award trust to reviewer
         try:
-            await auth_service_client.adjust_user_trust(
+            await adjust_trust_for_review(
                 user_id=review.user_id,
                 delta=delta,
-                reason=f"Review voted {'helpful' if delta > 0 else 'unhelpful'}",
-                metadata={
-                    "review_id": review_id,
-                    "book_id": review.book_id,
-                    "voter_id": str(user_id),
-                }
             )
         except Exception as e:
             print(f"Warning: Failed to adjust reviewer trust: {e}")
-    
+
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
-    
+
     return {
         "message": "Vote recorded",
         "helpful_count": review.helpful_count,
@@ -1426,64 +1443,57 @@ async def remove_review_vote(
     )
     result = await db.execute(query)
     vote = result.scalar_one_or_none()
-    
+
     if not vote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="You have not voted on this review"
+            detail="You have not voted on this review",
         )
-    
+
     # Load review
     review_query = select(Review).where(Review.id == review_id)
     review_result = await db.execute(review_query)
     review = review_result.scalar_one_or_none()
-    
+
     if not review:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
         )
-    
+
     # Store old trust value for calculating actual change
     old_trust_awarded = review.trust_awarded
-    
+
     # Reverse vote count
     if vote.vote == VoteType.HELPFUL:
         review.helpful_count = max(0, review.helpful_count - 1)
     else:
         review.unhelpful_count = max(0, review.unhelpful_count - 1)
-    
+
     # Delete vote
     await db.delete(vote)
-    
+
     # Commit vote removal first
     await db.commit()
     await db.refresh(review)
-    
+
     # Recalculate trust from vote balance (helpful - unhelpful), capped at ±5
     new_trust_awarded = max(-5, min(5, review.helpful_count - review.unhelpful_count))
     delta = new_trust_awarded - old_trust_awarded
-    
+
     # Update trust_awarded if it changed
     if delta != 0:
         review.trust_awarded = new_trust_awarded
         await db.commit()
         await db.refresh(review)
-        
+
         # Adjust reviewer trust
         try:
-            await auth_service_client.adjust_user_trust(
+            await adjust_trust_for_review(
                 user_id=review.user_id,
                 delta=delta,
-                reason="Review vote removed",
-                metadata={
-                    "review_id": review_id,
-                    "book_id": review.book_id,
-                    "voter_id": str(user_id),
-                }
             )
         except Exception as e:
             print(f"Warning: Failed to reverse reviewer trust: {e}")
-    
+
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
