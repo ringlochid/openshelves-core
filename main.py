@@ -57,7 +57,12 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_meta(request: Request, call_next):
-    ip = request.client.host if request.client else None
+    # Check X-Forwarded-For for AWS ALB/proxy deployments
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+    else:
+        ip = request.client.host if request.client else None
     request.state.meta = {"ip": ip}
     response = await call_next(request)
     return response
