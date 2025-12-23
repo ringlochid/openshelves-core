@@ -4,9 +4,22 @@ Base classes and common field groups for reuse across entities.
 """
 
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from models import ContentStatus
+
+
+# ========================================
+# Shared Enums
+# ========================================
+
+
+class SortDirection(str, Enum):
+    """Sort order direction for list queries."""
+
+    asc = "asc"
+    desc = "desc"
 
 
 # ========================================

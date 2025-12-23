@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import text
 
-from routers import author, jury, book
+from routers import author, jury, book, collection
 from cache import close_redis, init_redis
 from database import AsyncSessionLocal
 from dependencies.auth import load_jwt_public_key
@@ -118,6 +118,7 @@ async def readiness_check():
 app.include_router(author.router)
 app.include_router(jury.router)
 app.include_router(book.router)  # Phase 3: Books & Reviews
+app.include_router(collection.router)  # Phase 4: Collections
 
 # Legacy routers disabled (awaiting Phase 2-4 rewrite)
 # from routers import review (review endpoints now in book router)

@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from database import get_async_db
 from dependencies.auth import (
     get_current_user,
+    get_current_user_optional,
     require_scope,
     require_role,
     require_min_trust,
@@ -194,10 +195,12 @@ async def get_author(
     ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
+    current_user: dict | None = Depends(get_current_user_optional),
 ):
     """
     Get detailed author information.
-    Only shows approved, public authors to unauthenticated users.
+    Approved, public authors visible to everyone.
+    Owners can see their own pending/non-public authors.
     """
     rl_key = cache.make_rate_limit_key("authors:get", ip or "unknown")
     allowed, _ = await cache.token_bucket_allow(
@@ -213,7 +216,7 @@ async def get_author(
             detail="Too many requests. Please try again later.",
         )
 
-    # Try cache first, but verify status (prevent pending data leak from jury cache)
+    # Try cache first (only for public/approved)
     cached = await cache.get_author(author_id, r)
     if (
         cached
@@ -222,13 +225,12 @@ async def get_author(
     ):
         return AuthorDetail.model_validate(cached)
 
+    # Query without status filter first to check ownership
     query = (
         select(Author)
         .where(
             and_(
                 Author.id == author_id,
-                Author.status == ContentStatus.APPROVED,
-                Author.is_public == True,
                 Author.is_deleted == False,
             )
         )
@@ -243,9 +245,21 @@ async def get_author(
             status_code=status.HTTP_404_NOT_FOUND, detail="Author not found"
         )
 
-    # Cache the result
-    author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
-    await cache.cache_author(author_id, author_dict, r)
+    # Access control
+    is_owner = current_user and str(author.created_by_user_id) == current_user.get(
+        "user_id"
+    )
+    is_public_approved = author.status == ContentStatus.APPROVED and author.is_public
+
+    if not is_public_approved and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Author not found"
+        )
+
+    # Cache only public/approved authors
+    if is_public_approved:
+        author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
+        await cache.cache_author(author_id, author_dict, r)
 
     return AuthorDetail.model_validate(author)
 

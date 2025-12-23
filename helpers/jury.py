@@ -162,9 +162,9 @@ async def cast_jury_vote(
         await _invalidate_pending_vote_caches(entity_type, entity_id, redis_client)
 
     return {
-        "vote_score": current_score,
-        "auto_published": auto_published,
-        "threshold_met": current_score >= VOTE_THRESHOLD,
+        "vote_weight": vote_value,
+        "new_vote_score": current_score,
+        "auto_approved": auto_published,
     }
 
 
@@ -173,6 +173,7 @@ async def retract_jury_vote(
     user_id: UUID,
     entity_type: str,
     entity_id: int,
+    redis_client=None,
 ) -> dict:
     """
     Retract a jury vote (remove vote and decrement score).
@@ -182,6 +183,7 @@ async def retract_jury_vote(
         user_id: User retracting the vote
         entity_type: 'author', 'book', or 'collection'
         entity_id: ID of the entity
+        redis_client: Optional Redis client for cache invalidation
 
     Returns:
         Dictionary with:
@@ -220,6 +222,10 @@ async def retract_jury_vote(
     # Delete vote
     await db.delete(vote)
     await db.commit()
+
+    # Invalidate jury queue caches so vote_score stays fresh
+    if redis_client:
+        await _invalidate_pending_vote_caches(entity_type, entity_id, redis_client)
 
     return {
         "vote_score": current_score,
@@ -267,6 +273,9 @@ async def get_vote_status(
         "threshold": VOTE_THRESHOLD,
         "votes_needed": votes_needed,
         "voter_count": voter_count,
+        "total_votes": voter_count,  # Alias for router compatibility
+        "has_voted": voter_count > 0,  # True if any votes exist
+        "vote_weight": vote_score,  # Alias for router compatibility
         "voters": [str(v.user_id) for v in votes],
         "vote_breakdown": {str(v.user_id): v.vote_value for v in votes},
     }

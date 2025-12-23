@@ -14,6 +14,7 @@ from .shared import (
     WorkflowMixin,
     AuthorBrief,
     BookBrief,
+    SortDirection,
 )
 
 # ========================================
@@ -31,13 +32,6 @@ class SortField(str, Enum):
     by_view_count = "view_count"
     by_trending_score = "trending_score"
     by_subscriber_count = "subscriber_count"
-
-
-class SortDirection(str, Enum):
-    """Sort order direction."""
-
-    asc = "asc"
-    desc = "desc"
 
 
 class BookSortControl(BaseModel):

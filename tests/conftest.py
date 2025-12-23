@@ -360,7 +360,11 @@ def mock_rate_limit():
             with patch(
                 "routers.jury.cache.token_bucket_allow", new=mock_token_bucket_allow
             ):
-                yield
+                with patch(
+                    "routers.collection.cache.token_bucket_allow",
+                    new=mock_token_bucket_allow,
+                ):
+                    yield
 
 
 # ========================================
@@ -502,4 +506,109 @@ def subscribed_user():
         "user_id": str(uuid4()),
         "scopes": ["books:read"],
         "trust_score": 10,
+    }
+
+
+# ========================================
+# COLLECTION FIXTURES (Phase 4)
+# ========================================
+
+
+@pytest.fixture
+async def pending_collection(test_db, approved_book):
+    """Create a pending collection for approval tests."""
+    from models import Collection, CollectionBook, ContentStatus
+    from datetime import datetime, timezone
+
+    owner_id = uuid4()
+    collection = Collection(
+        name="Pending Test Collection",
+        description="Test collection description",
+        created_by_user_id=owner_id,
+        status=ContentStatus.PENDING,
+        is_public=False,
+        version=1,
+    )
+    test_db.add(collection)
+    await test_db.flush()
+
+    # Add book to collection
+    cb = CollectionBook(
+        collection_id=collection.id,
+        book_id=approved_book.id,
+        position=1,
+        added_at=datetime.now(timezone.utc),
+    )
+    test_db.add(cb)
+    collection.book_count = 1
+    await test_db.commit()
+    await test_db.refresh(collection)
+    return collection
+
+
+@pytest.fixture
+async def approved_collection(test_db, approved_book):
+    """Create an approved, public collection for testing."""
+    from models import Collection, CollectionBook, ContentStatus
+    from datetime import datetime, timezone
+
+    owner_id = uuid4()
+    collection = Collection(
+        name="Approved Test Collection",
+        description="Test collection description",
+        created_by_user_id=owner_id,
+        status=ContentStatus.APPROVED,
+        is_public=True,
+        version=1,
+    )
+    test_db.add(collection)
+    await test_db.flush()
+
+    # Add book to collection
+    cb = CollectionBook(
+        collection_id=collection.id,
+        book_id=approved_book.id,
+        position=1,
+        added_at=datetime.now(timezone.utc),
+    )
+    test_db.add(cb)
+    collection.book_count = 1
+    await test_db.commit()
+    await test_db.refresh(collection)
+    return collection
+
+
+@pytest.fixture
+async def deleted_collection(test_db):
+    """Create a soft-deleted collection for recovery tests."""
+    from models import Collection, ContentStatus
+    from datetime import datetime, timezone
+
+    collection = Collection(
+        name="Deleted Test Collection",
+        description="Deleted collection",
+        created_by_user_id=uuid4(),
+        status=ContentStatus.APPROVED,
+        is_public=False,
+        is_deleted=True,
+        deleted_at=datetime.now(timezone.utc),
+        version=1,
+    )
+    test_db.add(collection)
+    await test_db.commit()
+    await test_db.refresh(collection)
+    return collection
+
+
+@pytest.fixture
+def contributor_user():
+    """Contributor user with content submission permissions."""
+    return {
+        "user_id": str(uuid4()),
+        "scopes": [
+            "collections:create",
+            "collections:update_own",
+            "collections:delete_own",
+        ],
+        "trust_score": 15,
     }

@@ -337,7 +337,6 @@ class Book(Base):
             postgresql_ops={"title": "gin_trgm_ops"},
             postgresql_using="gin",
         ),
-        # TODO, new indexs waiting for migration:
         Index(
             "ix_books_view_count",
             "view_count",
@@ -451,6 +450,16 @@ class Collection(Base):
     description: Mapped[str | None] = mapped_column(Text)
     cover_key: Mapped[str | None] = mapped_column(String(255))
 
+    # Full-text search vector (computed from name + description)
+    search_tsv: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english', coalesce(name, '')), 'A') || "
+            "setweight(to_tsvector('english', coalesce(description, '')), 'C')",
+            persisted=True,
+        ),
+    )
+
     # Ownership
     created_by_user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), nullable=False
@@ -477,9 +486,18 @@ class Collection(Base):
     last_edited_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # Social
+    # Social & Statistics
     subscriber_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
+    )
+    book_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    view_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    trending_score: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("0.0")
     )
 
     # Jury Voting (Democratic Approval)
@@ -518,6 +536,10 @@ class Collection(Base):
             "subscriber_count >= 0", name="ck_collections_subscriber_count_positive"
         ),
         CheckConstraint(
+            "book_count >= 0 AND book_count <= 100",
+            name="ck_collections_book_count_limit",
+        ),
+        CheckConstraint(
             "vote_score >= 0 AND vote_score <= 5",
             name="ck_collections_vote_score_range",
         ),
@@ -525,6 +547,31 @@ class Collection(Base):
         Index("ix_collections_created_by", "created_by_user_id"),
         Index("ix_collections_status_public", "status", "is_public"),
         Index("ix_collections_deleted", "is_deleted", "deleted_at"),
+        # FTS index
+        Index("ix_collections_search_tsv", "search_tsv", postgresql_using="gin"),
+        # Trigram index for name similarity
+        Index(
+            "ix_collections_name_trgm",
+            text("immutable_unaccent(name)"),
+            postgresql_ops={"immutable_unaccent(name)": "gin_trgm_ops"},
+            postgresql_using="gin",
+        ),
+        # Statistics indexes
+        Index(
+            "ix_collections_subscriber_count",
+            "subscriber_count",
+            postgresql_where="subscriber_count > 0 and is_public = true and is_deleted = false",
+        ),
+        Index(
+            "ix_collections_view_count",
+            "view_count",
+            postgresql_where="view_count > 0 and is_public = true and is_deleted = false",
+        ),
+        Index(
+            "ix_collections_trending_score",
+            "trending_score",
+            postgresql_where="trending_score > 0 and is_public = true and is_deleted = false",
+        ),
     )
 
 

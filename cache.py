@@ -288,6 +288,22 @@ async def track_book_view(book_id: int, viewer_id: str, r: Redis | None = None):
     await redis.pfadd(key, viewer_id)
 
 
+async def track_collection_view(
+    collection_id: int, viewer_id: str, r: Redis | None = None
+):
+    """
+    Track unique collection view using Redis HyperLogLog.
+
+    Args:
+        collection_id: ID of the collection being viewed
+        viewer_id: Unique viewer identifier (IP or user_id)
+        r: Redis connection (optional)
+    """
+    redis = r or await init_redis()
+    key = f"views:collection:{collection_id}"
+    await redis.pfadd(key, viewer_id)
+
+
 # ========================================
 # BOOK CACHING
 # ========================================

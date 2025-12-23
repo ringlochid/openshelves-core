@@ -139,6 +139,55 @@ async def get_current_user(
     }
 
 
+# Optional security - doesn't require auth header
+security_optional = HTTPBearer(auto_error=False)
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+) -> dict | None:
+    """
+    Extract and validate current user from JWT token, or return None for anonymous users.
+
+    Unlike get_current_user, this does NOT raise errors for missing/invalid tokens.
+    Use this for endpoints that allow both authenticated and anonymous access.
+
+    Returns:
+        Dictionary with user information (same as get_current_user), or None if:
+        - No auth header provided
+        - Token is invalid/expired
+        - Token is blacklisted
+    """
+    if credentials is None:
+        return None
+
+    try:
+        token = credentials.credentials
+        payload = decode_and_validate_jwt(token)
+
+        # Check if token is blacklisted
+        jti = payload.get("jti")
+        if jti:
+            r = await init_redis()
+            if await check_access_in_blacklist(jti, r):
+                return None
+
+        # Extract user information
+        user_id = UUID(payload["sub"])
+
+        return {
+            "user_id": str(user_id),
+            "roles": payload.get("roles", []),
+            "scopes": payload.get("scopes", []),
+            "trust_score": payload.get("trust_score", 0),
+            "reputation_percentage": payload.get("reputation_percentage", 100.0),
+            "jti": jti,
+        }
+    except (HTTPException, KeyError, ValueError):
+        # Any error means treat as anonymous
+        return None
+
+
 def require_scope(*required_scopes: str) -> Callable:
     """
     Dependency factory to require specific scopes.

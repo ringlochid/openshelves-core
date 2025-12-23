@@ -11,9 +11,10 @@ from sqlalchemy.orm import selectinload
 from database import get_async_db
 from cache import get_redis
 from dependencies.auth import get_current_user, require_scope
-from models import Author, Book, ContentStatus
+from models import Author, Book, Collection, CollectionBook, ContentStatus
 from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
 from schemas.book import BookDetail, BookListRead, BookListResponse
+from schemas.collection import CollectionRead, CollectionDetail, CollectionListResponse
 from helpers.jury import (
     calculate_vote_weight,
     cast_jury_vote,
@@ -274,10 +275,9 @@ async def vote_on_author(
 
     return {
         "message": "Vote cast successfully",
-        "vote_value": vote_value,
-        "vote_score": vote_result["vote_score"],
-        "auto_published": vote_result["auto_published"],
-        "threshold_met": vote_result["threshold_met"],
+        "vote_weight": vote_result["vote_weight"],
+        "new_vote_score": vote_result["new_vote_score"],
+        "auto_approved": vote_result.get("auto_approved", False),
     }
 
 
@@ -324,6 +324,7 @@ async def retract_vote_on_author(
             user_id=current_user["user_id"],
             entity_type="author",
             entity_id=author_id,
+            redis_client=r,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -610,6 +611,7 @@ async def retract_vote_on_book(
             entity_type="book",
             entity_id=book_id,
             user_id=current_user["user_id"],
+            redis_client=r,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -641,15 +643,296 @@ async def get_book_vote_status(
             detail="Too many requests. Please try again later.",
         )
 
-    status = await get_vote_status(
+    vote_status = await get_vote_status(
         db=db,
         entity_type="book",
         entity_id=book_id,
     )
 
     return {
-        "has_voted": status["has_voted"],
-        "vote_weight": status["vote_weight"],
-        "total_votes": status["total_votes"],
-        "threshold": status["threshold"],
+        "has_voted": vote_status["has_voted"],
+        "vote_weight": vote_status["vote_weight"],
+        "total_votes": vote_status["total_votes"],
+        "threshold": vote_status["threshold"],
+    }
+
+
+# ========================================
+# COLLECTION JURY ENDPOINTS
+# ========================================
+
+
+@router.get("/collections", response_model=CollectionListResponse)
+async def list_pending_collections(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort: str = Query("created_at", pattern="^(created_at|vote_score|name)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    List pending collections in jury queue.
+    Requires 'jury:view' scope.
+    """
+    rl_key = cache.make_rate_limit_key(
+        "jury:collections:list", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    # Try cache first
+    params = {"page": page, "per_page": per_page, "sort": sort, "order": order}
+    cached = await cache.get_list("jury:collections", params, r=r)
+    if cached is not None:
+        return cached
+
+    # Base query
+    query = select(Collection).where(
+        and_(
+            Collection.status == ContentStatus.PENDING,
+            Collection.is_deleted == False,
+        )
+    )
+
+    # Sorting
+    order_col = getattr(Collection, sort)
+    if order == "desc":
+        query = query.order_by(order_col.desc())
+    else:
+        query = query.order_by(order_col.asc())
+
+    # Count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query) or 0
+
+    # Pagination
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+
+    result = await db.execute(query)
+    collections = result.scalars().all()
+
+    response = CollectionListResponse(
+        items=[CollectionRead.model_validate(c) for c in collections],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=(total + per_page - 1) // per_page,
+    )
+
+    # Cache
+    await cache.cache_list(
+        "jury:collections", params, response.model_dump(mode="json"), r=r
+    )
+
+    return response
+
+
+@router.get("/collections/{collection_id}", response_model=CollectionDetail)
+async def get_pending_collection_detail(
+    collection_id: int,
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """Get detailed information about a pending collection in the jury queue."""
+    rl_key = cache.make_rate_limit_key(
+        "jury:collections:get", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    query = (
+        select(Collection)
+        .where(
+            and_(
+                Collection.id == collection_id,
+                Collection.status == ContentStatus.PENDING,
+                Collection.is_deleted == False,
+            )
+        )
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
+    )
+    result = await db.execute(query)
+    collection = result.scalar_one_or_none()
+
+    if not collection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found in jury queue",
+        )
+
+    return CollectionDetail.model_validate(collection)
+
+
+@router.post("/collections/{collection_id}/vote")
+async def vote_on_collection(
+    collection_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r=Depends(get_redis),
+):
+    """
+    Cast a jury vote on a pending collection.
+    Vote weight based on user scopes (contributor=1, trusted=5).
+    """
+    rl_key = cache.make_rate_limit_key(
+        "jury:collections:vote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    # Get collection
+    query = select(Collection).where(
+        and_(
+            Collection.id == collection_id,
+            Collection.status == ContentStatus.PENDING,
+            Collection.is_deleted == False,
+        )
+    )
+    result = await db.execute(query)
+    collection = result.scalar_one_or_none()
+
+    if not collection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found in jury queue",
+        )
+
+    # Calculate vote weight
+    user_scopes = current_user.get("scopes", [])
+    vote_value = calculate_vote_weight(user_scopes)
+
+    if vote_value == 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to vote",
+        )
+
+    result = await cast_jury_vote(
+        db=db,
+        user_id=current_user["user_id"],
+        entity_type="collection",
+        entity_id=collection_id,
+        vote_value=vote_value,
+        entity=collection,
+        redis_client=r,
+    )
+
+    await db.commit()
+
+    return {
+        "message": "Vote cast successfully",
+        "vote_weight": result["vote_weight"],
+        "new_vote_score": result["new_vote_score"],
+        "auto_approved": result.get("auto_approved", False),
+    }
+
+
+@router.delete(
+    "/collections/{collection_id}/vote", status_code=status.HTTP_204_NO_CONTENT
+)
+async def retract_vote_on_collection(
+    collection_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """Retract your jury vote on a pending collection."""
+    rl_key = cache.make_rate_limit_key(
+        "jury:collections:unvote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+    try:
+        await retract_jury_vote(
+            db=db,
+            entity_type="collection",
+            entity_id=collection_id,
+            user_id=current_user["user_id"],
+            redis_client=r,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    await db.commit()
+
+
+@router.get("/collections/{collection_id}/votes")
+async def get_collection_vote_status(
+    collection_id: int,
+    current_user: dict = Depends(require_scope("jury:view")),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """Get voting status and statistics for a pending collection."""
+    rl_key = cache.make_rate_limit_key(
+        "jury:collections:votes", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    vote_status = await get_vote_status(
+        db=db,
+        entity_type="collection",
+        entity_id=collection_id,
+    )
+
+    return {
+        "has_voted": vote_status["has_voted"],
+        "vote_weight": vote_status["vote_weight"],
+        "total_votes": vote_status["total_votes"],
+        "threshold": vote_status["threshold"],
     }

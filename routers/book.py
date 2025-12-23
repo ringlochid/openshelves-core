@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_async_db
-from dependencies.auth import get_current_user, require_scope, require_min_trust
+from dependencies.auth import (
+    get_current_user,
+    get_current_user_optional,
+    require_scope,
+    require_min_trust,
+)
 from models import (
     Book,
     Author,
@@ -287,10 +292,12 @@ async def get_book(
     ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
+    current_user: dict | None = Depends(get_current_user_optional),
 ):
     """
     Get detailed book information.
-    Only shows approved, public books to unauthenticated users.
+    Approved, public books visible to everyone.
+    Owners can see their own pending/non-public books.
     """
     rl_key = cache.make_rate_limit_key("books:get", ip or "unknown")
     allowed, _ = await cache.token_bucket_allow(
@@ -305,7 +312,8 @@ async def get_book(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests. Please try again later.",
         )
-    # Try cache first
+
+    # Try cache first (only for public/approved)
     cached = await cache.get_book(book_id, r)
     if (
         cached
@@ -314,13 +322,12 @@ async def get_book(
     ):
         return cached
 
+    # Query without status filter first to check ownership
     query = (
         select(Book)
         .where(
             and_(
                 Book.id == book_id,
-                Book.status == ContentStatus.APPROVED,
-                Book.is_public == True,
                 Book.is_deleted == False,
             )
         )
@@ -333,16 +340,28 @@ async def get_book(
 
     if not book:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found or not public"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
 
-    # Track view (non-blocking, fire-and-forget for analytics)
-    viewer_id = ip or "anonymous"
-    await cache.track_book_view(book_id, viewer_id, r)
+    # Access control
+    is_owner = current_user and str(book.created_by_user_id) == current_user.get(
+        "user_id"
+    )
+    is_public_approved = book.status == ContentStatus.APPROVED and book.is_public
 
-    # Cache the result
-    book_dict = BookDetail.model_validate(book).model_dump(mode="json")
-    await cache.cache_book(book_id, book_dict, r)
+    if not is_public_approved and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+
+    # Track view (only for public books)
+    if is_public_approved:
+        viewer_id = ip or "anonymous"
+        await cache.track_book_view(book_id, viewer_id, r)
+
+        # Cache the result
+        book_dict = BookDetail.model_validate(book).model_dump(mode="json")
+        await cache.cache_book(book_id, book_dict, r)
 
     return BookDetail.model_validate(book)
 

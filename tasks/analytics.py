@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 
 from celery_app import app
 from database import create_worker_session
-from models import Book, Review
+from models import Book, Collection, Review
 import cache
 
 
@@ -29,7 +29,12 @@ def sync_view_counts() -> dict:
 
         try:
             async with WorkerSession() as db:
-                # Get all public books
+                # Initialize Redis
+                r = await cache.init_redis()
+                updated_books = 0
+                updated_collections = 0
+
+                # Sync book view counts
                 result = await db.execute(
                     select(Book).where(
                         Book.is_public == True,
@@ -38,26 +43,37 @@ def sync_view_counts() -> dict:
                 )
                 books = result.scalars().all()
 
-                # Initialize Redis
-                r = await cache.init_redis()
-                updated_count = 0
-
                 for book in books:
-                    # Read view count from Redis HyperLogLog
                     redis_key = f"views:book:{book.id}"
                     view_count = await r.pfcount(redis_key)
-
-                    # Update if changed
                     if view_count != book.view_count:
                         book.view_count = view_count
-                        updated_count += 1
+                        updated_books += 1
+
+                # Sync collection view counts
+                result = await db.execute(
+                    select(Collection).where(
+                        Collection.is_public == True,
+                        Collection.is_deleted == False,
+                    )
+                )
+                collections = result.scalars().all()
+
+                for collection in collections:
+                    redis_key = f"views:collection:{collection.id}"
+                    view_count = await r.pfcount(redis_key)
+                    if view_count != collection.view_count:
+                        collection.view_count = view_count
+                        updated_collections += 1
 
                 await db.commit()
 
                 return {
                     "status": "completed",
                     "books_checked": len(books),
-                    "books_updated": updated_count,
+                    "books_updated": updated_books,
+                    "collections_checked": len(collections),
+                    "collections_updated": updated_collections,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
         finally:
@@ -69,17 +85,17 @@ def sync_view_counts() -> dict:
 @app.task(name="tasks.analytics.calculate_trending_scores")
 def calculate_trending_scores() -> dict:
     """
-    Calculate trending scores for all public books using Reddit-style algorithm.
+    Calculate trending scores for all public books and collections using Reddit-style algorithm.
 
     This task runs every 6 hours (configured in celery_app.py beat_schedule).
 
     Formula: log10(max(views, 1)) / ((age_hours + 2) ^ gravity)
-    - Recent books with moderate views rank higher than old books with high views
+    - Recent content with moderate views rank higher than old content with high views
     - Logarithmic scaling prevents mega-hits from dominating
-    - Gravity (1.8) controls time decay rate
+    - Gravity (1.5) controls time decay rate
 
     Returns:
-        Dict with count of updated books
+        Dict with count of updated books and collections
     """
 
     async def _calculate():
@@ -88,7 +104,14 @@ def calculate_trending_scores() -> dict:
 
         try:
             async with WorkerSession() as db:
-                # Get all public books
+                now = datetime.now(timezone.utc)
+                updated_books = 0
+                updated_collections = 0
+
+                # Constants
+                GRAVITY = 1.5  # Time decay factor (1.5-2.0 recommended)
+
+                # Calculate for books
                 result = await db.execute(
                     select(Book).where(
                         Book.is_public == True,
@@ -97,37 +120,49 @@ def calculate_trending_scores() -> dict:
                 )
                 books = result.scalars().all()
 
-                now = datetime.now(timezone.utc)
-                updated_count = 0
-
-                # Constants
-                GRAVITY = 1.5  # Time decay factor (1.5-2.0 recommended)
-
                 for book in books:
-                    # Popularity signal (logarithmic scaling)
                     views = max(book.view_count, 1)
                     popularity = math.log10(views)
-
-                    # Time decay
-                    age_seconds = (now - book.updated_at).total_seconds()
+                    # Use created_at (not updated_at) to prevent analytics sync from resetting decay
+                    age_seconds = (now - book.created_at).total_seconds()
                     age_hours = age_seconds / 3600
                     time_decay = (age_hours + 2) ** GRAVITY
-
-                    # Calculate and store trending score
                     new_score = popularity / time_decay
 
-                    if (
-                        abs(new_score - book.trending_score) > 0.001
-                    ):  # Update if changed
+                    if abs(new_score - book.trending_score) > 0.001:
                         book.trending_score = new_score
-                        updated_count += 1
+                        updated_books += 1
+
+                # Calculate for collections
+                result = await db.execute(
+                    select(Collection).where(
+                        Collection.is_public == True,
+                        Collection.is_deleted == False,
+                    )
+                )
+                collections = result.scalars().all()
+
+                for collection in collections:
+                    views = max(collection.view_count, 1)
+                    popularity = math.log10(views)
+                    # Use created_at (not updated_at) to prevent analytics sync from resetting decay
+                    age_seconds = (now - collection.created_at).total_seconds()
+                    age_hours = age_seconds / 3600
+                    time_decay = (age_hours + 2) ** GRAVITY
+                    new_score = popularity / time_decay
+
+                    if abs(new_score - collection.trending_score) > 0.001:
+                        collection.trending_score = new_score
+                        updated_collections += 1
 
                 await db.commit()
 
                 return {
                     "status": "completed",
                     "books_checked": len(books),
-                    "books_updated": updated_count,
+                    "books_updated": updated_books,
+                    "collections_checked": len(collections),
+                    "collections_updated": updated_collections,
                     "timestamp": now.isoformat(),
                 }
         finally:
@@ -159,6 +194,7 @@ def recalculate_average_ratings() -> dict:
                     select(Book.id, func.avg(Review.rating).label("avg_rating"))
                     .join(Review, Book.id == Review.book_id)
                     .where(
+                        Review.is_deleted == False,
                         Book.is_public == True,
                         Book.is_deleted == False,
                     )
