@@ -168,7 +168,7 @@ class PaginatedBooksCursor(BaseModel):
 class BookListResponse(BaseModel):
     """Offset-based paginated book list response."""
 
-    items: list[BookListRead]
+    items: list[BookListItem]
     total: int
     page: int
     per_page: int

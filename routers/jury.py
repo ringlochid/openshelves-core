@@ -15,6 +15,7 @@ from models import Author, Book, Collection, CollectionBook, ContentStatus
 from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
 from schemas.book import BookDetail, BookListRead, BookListResponse
 from schemas.collection import CollectionRead, CollectionDetail, CollectionListResponse
+from schemas.jury import JuryVoteResponse, JuryVoteStatus
 from helpers.jury import (
     calculate_vote_weight,
     cast_jury_vote,
@@ -181,7 +182,7 @@ async def get_pending_author_detail(
 # ========================================
 
 
-@router.post("/authors/{author_id}/vote")
+@router.post("/authors/{author_id}/vote", response_model=JuryVoteResponse)
 async def vote_on_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
@@ -273,12 +274,11 @@ async def vote_on_author(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    return {
-        "message": "Vote cast successfully",
-        "vote_weight": vote_result["vote_weight"],
-        "new_vote_score": vote_result["new_vote_score"],
-        "auto_approved": vote_result.get("auto_approved", False),
-    }
+    return JuryVoteResponse(
+        vote_weight=vote_result["vote_weight"],
+        new_vote_score=vote_result["new_vote_score"],
+        auto_approved=vote_result.get("auto_approved", False),
+    )
 
 
 @router.delete("/authors/{author_id}/vote", status_code=status.HTTP_204_NO_CONTENT)
@@ -510,7 +510,7 @@ async def get_pending_book_detail(
     return BookDetail.model_validate(book)
 
 
-@router.post("/books/{book_id}/vote")
+@router.post("/books/{book_id}/vote", response_model=JuryVoteResponse)
 async def vote_on_book(
     book_id: int,
     current_user: dict = Depends(get_current_user),
@@ -574,12 +574,11 @@ async def vote_on_book(
 
     await db.commit()
 
-    return {
-        "message": "Vote cast successfully",
-        "vote_weight": result["vote_weight"],
-        "new_vote_score": result["new_vote_score"],
-        "auto_approved": result.get("auto_approved", False),
-    }
+    return JuryVoteResponse(
+        vote_weight=result["vote_weight"],
+        new_vote_score=result["new_vote_score"],
+        auto_approved=result.get("auto_approved", False),
+    )
 
 
 @router.delete("/books/{book_id}/vote", status_code=status.HTTP_204_NO_CONTENT)
@@ -787,7 +786,7 @@ async def get_pending_collection_detail(
     return CollectionDetail.model_validate(collection)
 
 
-@router.post("/collections/{collection_id}/vote")
+@router.post("/collections/{collection_id}/vote", response_model=JuryVoteResponse)
 async def vote_on_collection(
     collection_id: int,
     current_user: dict = Depends(get_current_user),
@@ -853,12 +852,11 @@ async def vote_on_collection(
 
     await db.commit()
 
-    return {
-        "message": "Vote cast successfully",
-        "vote_weight": result["vote_weight"],
-        "new_vote_score": result["new_vote_score"],
-        "auto_approved": result.get("auto_approved", False),
-    }
+    return JuryVoteResponse(
+        vote_weight=result["vote_weight"],
+        new_vote_score=result["new_vote_score"],
+        auto_approved=result.get("auto_approved", False),
+    )
 
 
 @router.delete(

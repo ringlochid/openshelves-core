@@ -50,6 +50,7 @@ from schemas.collection import (
     CollectionListItem,
     CollectionRead,
     CollectionUpdate,
+    CollectionListResponse,
     PaginatedCollectionsCursor,
 )
 from schemas.shared import SortDirection
@@ -251,6 +252,70 @@ async def list_collections(
     return PaginatedCollectionsCursor(
         items=[CollectionListItem.model_validate(c) for c in collections],
         next_cursor=next_cursor,
+    )
+
+
+@router.get("/me", response_model=CollectionListResponse)
+async def get_my_collections(
+    current_user: dict = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    Get all collections created by the current user.
+    Shows all statuses (PENDING, APPROVED, REJECTED) for owner management.
+    """
+    # Rate limiting
+    rl_key = cache.make_rate_limit_key(
+        "collections:me", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    user_id = current_user["user_id"]
+
+    # Build query for user's collections (any status, not deleted)
+    query = (
+        select(Collection)
+        .where(
+            and_(
+                Collection.created_by_user_id == user_id,
+                Collection.is_deleted == False,
+            )
+        )
+        .order_by(Collection.created_at.desc())
+    )
+
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query) or 0
+
+    # Apply pagination
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+
+    # Execute
+    result = await db.execute(query)
+    collections = result.scalars().all()
+
+    return CollectionListResponse(
+        items=[CollectionRead.model_validate(c) for c in collections],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=(total + per_page - 1) // per_page,
     )
 
 

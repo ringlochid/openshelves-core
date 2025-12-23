@@ -33,6 +33,7 @@ from schemas.book import (
     BookUpdate,
     BookDetail,
     BookListItem,
+    BookListResponse,
     PaginatedBooksCursor,
     BookSortControl,
     SortField,
@@ -283,6 +284,71 @@ async def list_books(
     return PaginatedBooksCursor(
         items=[BookListItem.model_validate(b) for b in books],
         next_cursor=next_cursor,
+    )
+
+
+@router.get("/me", response_model=BookListResponse)
+async def get_my_books(
+    current_user: dict = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(get_redis),
+):
+    """
+    Get all books created by the current user.
+    Shows all statuses (PENDING, APPROVED, REJECTED) for owner management.
+    """
+    # Rate limiting
+    rl_key = cache.make_rate_limit_key(
+        "books:me", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    user_id = current_user["user_id"]
+
+    # Build query for user's books (any status, not deleted)
+    query = (
+        select(Book)
+        .where(
+            and_(
+                Book.created_by_user_id == user_id,
+                Book.is_deleted == False,
+            )
+        )
+        .options(selectinload(Book.authors))
+        .order_by(Book.created_at.desc())
+    )
+
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query) or 0
+
+    # Apply pagination
+    offset = (page - 1) * per_page
+    query = query.offset(offset).limit(per_page)
+
+    # Execute
+    result = await db.execute(query)
+    books = result.scalars().all()
+
+    return BookListResponse(
+        items=[BookListItem.model_validate(b) for b in books],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=(total + per_page - 1) // per_page,
     )
 
 

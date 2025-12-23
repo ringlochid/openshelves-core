@@ -232,10 +232,35 @@ async def async_client(test_db: AsyncSession):
 
     # Import cache module's get_redis to override it
     from cache import get_redis
+    from dependencies.auth import get_current_user_optional
+
+    # Mock optional auth to parse JWT if present, return None if not
+    async def mock_get_current_user_optional(
+        authorization: str = Header(None),
+    ) -> dict | None:
+        """Mock optional authentication."""
+        if not authorization or not authorization.startswith("Bearer "):
+            return None
+
+        token = authorization.replace("Bearer ", "")
+        try:
+            payload = pyjwt.decode(
+                token,
+                TEST_JWT_PUBLIC_KEY,
+                algorithms=[TEST_JWT_ALGORITHM],
+                audience=settings.JWT_AUDIENCE,
+                issuer=settings.JWT_ISSUER,
+            )
+            if "user_id" in payload and isinstance(payload["user_id"], str):
+                payload["user_id"] = UUID(payload["user_id"])
+            return payload
+        except pyjwt.InvalidTokenError:
+            return None
 
     # Override database and all auth dependencies
     app.dependency_overrides[get_async_db] = override_get_db
     app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[get_current_user_optional] = mock_get_current_user_optional
     app.dependency_overrides[get_redis] = override_get_redis
 
     try:

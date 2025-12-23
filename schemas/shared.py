@@ -125,7 +125,7 @@ class BookRead(BaseSchema, TimestampMixin):
     title: str
     year: int | None
     description: str | None
-    tags: list[str] = []
+    tags: list[str] | None = None
     cover_key: str | None
     status: str  # ContentStatus enum value
     is_public: bool
