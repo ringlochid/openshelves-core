@@ -53,13 +53,6 @@ class AuthorUpdate(BaseModel):
     version: int = Field(..., description="Current version for optimistic locking")
 
 
-class AuthorApproval(BaseModel):
-    """Schema for admin approval/rejection."""
-
-    is_public: bool = Field(..., description="Make author publicly visible")
-    version: int = Field(..., description="Current version for optimistic locking")
-
-
 class AuthorRollbackRequest(BaseModel):
     """Schema for rolling back to a previous version."""
 

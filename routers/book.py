@@ -73,6 +73,8 @@ async def list_books(
     author_id: int | None = Query(None, description="Filter by author ID"),
     before: int | None = Query(None, description="Filter by year (before)"),
     after: int | None = Query(None, description="Filter by year (after)"),
+    tags: list[str] | None = Query(None, description="Filter by tags"),
+    exclude_tags: list[str] | None = Query(None, description="Exclude tags"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     sort: list[str] = Query(
@@ -146,17 +148,31 @@ async def list_books(
         stmt = stmt.where(Book.year <= before)
     if after:
         stmt = stmt.where(Book.year >= after)
-
-    # Full-text search with scoring
+    if tags and exclude_tags:
+        et_set = set(exclude_tags)
+        for t in tags:
+            if t in et_set:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Tag cannot be both included and excluded. Or you'll see nothing.",
+                )
+    if tags:
+        stmt = stmt.where(Book.tags.op("&&")(tags))
+    if exclude_tags:
+        stmt = stmt.where(~Book.tags.op("&&")(exclude_tags))
+    # FTS Search Logic
     total_score = None
     if q:
-        tsq = func.websearch_to_tsquery("english", q)
-        fts_score = func.ts_rank(Book.search_tsv, tsq)
+        # 1. Full-Text Search (High Precision)
+        # using setweight for ranking: title=A (1.0), description=C (0.2)
+        # rank_filter handles threshold
+        ts_query = func.plainto_tsquery("english", q)
+        rank = func.ts_rank(Book.search_tsv, ts_query)
         title_sim = func.similarity(Book.title, q)
         author_sim = func.coalesce(func.max(func.similarity(Author.name, q)), 0.0)
 
         # Weighted scoring: 60% FTS, 25% title similarity, 15% author similarity
-        total_score = 0.6 * fts_score + 0.25 * title_sim + 0.15 * author_sim
+        total_score = 0.6 * rank + 0.25 * title_sim + 0.15 * author_sim
 
         # Try FTS first
         fts_stmt = (
@@ -188,7 +204,11 @@ async def list_books(
     # Apply sorting
     order_exprs = []
     primary_sort = sort_controls[0] if sort_controls else None
-    by_similarity = primary_sort and primary_sort.sort_field == SortField.by_similarity
+    by_similarity = (
+        primary_sort
+        and primary_sort.sort_field == SortField.by_similarity
+        and total_score is not None
+    )
 
     for sort_ctrl in sort_controls:
         if sort_ctrl.sort_field == SortField.by_similarity:
@@ -200,8 +220,14 @@ async def list_books(
             col = Book.title
         elif sort_ctrl.sort_field == SortField.by_year:
             col = Book.year
-        elif sort_ctrl.sort_field == SortField.by_subscribers:
+        elif sort_ctrl.sort_field == SortField.by_average_rating:
+            col = Book.average_rating
+        elif sort_ctrl.sort_field == SortField.by_subscriber_count:
             col = Book.subscriber_count
+        elif sort_ctrl.sort_field == SortField.by_view_count:
+            col = Book.view_count
+        elif sort_ctrl.sort_field == SortField.by_trending_score:
+            col = Book.trending_score
         else:
             continue
 
@@ -309,6 +335,10 @@ async def get_book(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found or not public"
         )
+
+    # Track view (non-blocking, fire-and-forget for analytics)
+    viewer_id = ip or "anonymous"
+    await cache.track_book_view(book_id, viewer_id, r)
 
     # Cache the result
     book_dict = BookDetail.model_validate(book).model_dump(mode="json")

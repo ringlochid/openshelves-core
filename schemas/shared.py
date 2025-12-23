@@ -118,6 +118,9 @@ class BookRead(BaseSchema, TimestampMixin):
     is_public: bool
     subscriber_count: int
     created_by_user_id: UUID
+    average_rating: float = 0.0
+    view_count: int = 0
+    trending_score: float = 0.0
 
 
 class BookBrief(BaseSchema):
@@ -129,6 +132,7 @@ class BookBrief(BaseSchema):
     subscriber_count: int
     status: str  # ContentStatus enum value
     is_public: bool
+    average_rating: float = 0.0
 
 
 class ReviewRead(BaseSchema, TimestampMixin):

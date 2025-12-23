@@ -27,8 +27,10 @@ class SortField(str, Enum):
     by_similarity = "similarity"
     by_title = "title"
     by_year = "year"
-    by_rating = "rating"
-    by_subscribers = "subscribers"
+    by_average_rating = "average_rating"
+    by_view_count = "view_count"
+    by_trending_score = "trending_score"
+    by_subscriber_count = "subscriber_count"
 
 
 class SortDirection(str, Enum):
@@ -91,13 +93,6 @@ class BookUpdate(BaseModel):
     version: int = Field(..., description="Current version for optimistic locking")
 
 
-class BookApproval(BaseModel):
-    """Schema for admin approval/rejection."""
-
-    is_public: bool = Field(..., description="Make book publicly visible")
-    version: int = Field(..., description="Current version for optimistic locking")
-
-
 class RollbackRequest(BaseModel):
     """Schema for rolling back to a previous version."""
 
@@ -119,6 +114,9 @@ class BookListItem(BookBrief):
 
     year: int | None
     authors: list[AuthorBrief] = []
+    average_rating: float = 0.0
+    view_count: int = 0
+    trending_score: float = 0.0
 
 
 class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
@@ -134,6 +132,9 @@ class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
     file_format: str | None
     created_by_user_id: UUID
     subscriber_count: int
+    average_rating: float = 0.0
+    view_count: int = 0
+    trending_score: float = 0.0
 
     # Relationships loaded separately
     authors: list["AuthorRead"] = Field(default_factory=list)
@@ -159,25 +160,6 @@ class BookSubscriptionRead(BaseSchema):
 
 
 # ========================================
-# Search/Filter Schemas
-# ========================================
-
-
-class BookSearchParams(BaseModel):
-    """Search parameters for book queries."""
-
-    q: str | None = Field(None, description="Full-text search query")
-    tags: list[str] = Field(
-        default_factory=list, description="Filter by tags (AND logic)"
-    )
-    year_min: int | None = Field(None, gt=0)
-    year_max: int | None = Field(None, gt=0)
-    author_id: int | None = Field(None, description="Filter by author")
-    status: str | None = Field(None, pattern="^(PENDING|APPROVED|REJECTED)$")
-    is_public: bool | None = None
-
-
-# ========================================
 # Pagination Responses
 # ========================================
 
@@ -187,3 +169,13 @@ class PaginatedBooksCursor(BaseModel):
 
     items: list[BookListItem]
     next_cursor: str | None = None
+
+
+class BookListResponse(BaseModel):
+    """Offset-based paginated book list response."""
+
+    items: list[BookListRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int

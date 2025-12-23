@@ -267,6 +267,28 @@ async def invalidate_author_follows(author_id: int, r: Redis | None = None):
 
 
 # ========================================
+# VIEW TRACKING (HyperLogLog for unique views)
+# ========================================
+
+
+async def track_book_view(book_id: int, viewer_id: str, r: Redis | None = None):
+    """
+    Track unique book view using Redis HyperLogLog.
+
+    HyperLogLog provides approximate unique counts with ~0.81% error rate
+    but only uses 12KB per key regardless of cardinality.
+
+    Args:
+        book_id: ID of the book being viewed
+        viewer_id: Unique viewer identifier (IP or user_id)
+        r: Redis connection (optional)
+    """
+    redis = r or await init_redis()
+    key = f"views:book:{book_id}"
+    await redis.pfadd(key, viewer_id)
+
+
+# ========================================
 # BOOK CACHING
 # ========================================
 

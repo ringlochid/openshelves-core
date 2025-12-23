@@ -16,10 +16,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Float,
     String,
     Table,
     Text,
     UniqueConstraint,
+    desc,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID as PG_UUID
@@ -127,7 +129,7 @@ class Author(Base):
     last_edited_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # Social
+    # Social, also can used in statistics
     follower_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
@@ -240,7 +242,7 @@ class Book(Base):
     last_edited_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # Social
+    # Social, also can be used in statistics
     subscriber_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
@@ -261,6 +263,17 @@ class Book(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
         onupdate=datetime.now(timezone.utc),
+    )
+
+    # Statistics
+    average_rating: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("0.0")
+    )
+    view_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    trending_score: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("0.0")
     )
 
     # Full-Text Search (computed column)
@@ -323,6 +336,27 @@ class Book(Base):
             "title",
             postgresql_ops={"title": "gin_trgm_ops"},
             postgresql_using="gin",
+        ),
+        # TODO, new indexs waiting for migration:
+        Index(
+            "ix_books_view_count",
+            "view_count",
+            postgresql_where="view_count > 0 and is_public = true and is_deleted = false",
+        ),
+        Index(
+            "ix_books_trending_score",
+            "trending_score",
+            postgresql_where="trending_score > 0 and is_public = true and is_deleted = false",
+        ),
+        Index(
+            "ix_books_average_rating",
+            "average_rating",
+            postgresql_where="average_rating > 0 and is_public = true and is_deleted = false",
+        ),
+        Index(
+            "ix_books_subscriber_count",
+            "subscriber_count",
+            postgresql_where="subscriber_count > 0 and is_public = true and is_deleted = false",
         ),
     )
 
@@ -651,8 +685,7 @@ class EditHistory(Base):
             "ix_edit_history_entity",
             "entity_type",
             "entity_id",
-            "created_at",
-            postgresql_ops={"created_at": "DESC"},
+            desc("created_at"),
         ),
         Index("ix_edit_history_user", "user_id", "created_at"),
         Index(

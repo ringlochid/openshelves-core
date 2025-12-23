@@ -192,13 +192,15 @@ async def retract_jury_vote(
         ValueError: If vote doesn't exist
     """
     # Find existing vote
-    vote = await db.scalar_one_or_none(
-        select(JuryVote).where(
-            JuryVote.user_id == user_id,
-            JuryVote.entity_type == entity_type,
-            JuryVote.entity_id == entity_id,
+    vote = (
+        await db.execute(
+            select(JuryVote).where(
+                JuryVote.user_id == user_id,
+                JuryVote.entity_type == entity_type,
+                JuryVote.entity_id == entity_id,
+            )
         )
-    )
+    ).scalar_one_or_none()
 
     if not vote:
         raise ValueError("Vote not found")

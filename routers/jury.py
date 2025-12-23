@@ -13,7 +13,7 @@ from cache import get_redis
 from dependencies.auth import get_current_user, require_scope
 from models import Author, Book, ContentStatus
 from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
-from schemas.book import BookDetail, BookListRead
+from schemas.book import BookDetail, BookListRead, BookListResponse
 from helpers.jury import (
     calculate_vote_weight,
     cast_jury_vote,
@@ -381,7 +381,7 @@ async def get_author_vote_status(
 # ========================================
 
 
-@router.get("/books", response_model=dict)
+@router.get("/books", response_model=BookListResponse)
 async def list_pending_books(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -420,10 +420,14 @@ async def list_pending_books(
         return cached
 
     # Base query - only show PENDING, non-deleted books
-    query = select(Book).where(
-        and_(
-            Book.status == ContentStatus.PENDING,
-            Book.is_deleted == False,
+    query = (
+        select(Book)
+        .options(selectinload(Book.authors))  # Eager load to prevent N+1
+        .where(
+            and_(
+                Book.status == ContentStatus.PENDING,
+                Book.is_deleted == False,
+            )
         )
     )
 
@@ -445,16 +449,16 @@ async def list_pending_books(
     result = await db.execute(query)
     books = result.scalars().all()
 
-    response = {
-        "items": [BookListRead.model_validate(book) for book in books],
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": (total + per_page - 1) // per_page,
-    }
+    response = BookListResponse(
+        items=[BookListRead.model_validate(book) for book in books],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=(total + per_page - 1) // per_page,
+    )
 
     # Cache the response
-    await cache.cache_list("jury:books", params, response, r=r)
+    await cache.cache_list("jury:books", params, response.model_dump(mode="json"), r=r)
 
     return response
 
