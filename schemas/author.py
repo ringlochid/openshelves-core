@@ -35,6 +35,12 @@ class AuthorCreate(BaseModel):
     )
 
 
+class AuthorReplace(AuthorCreate):
+    """Schema for fully replacing an author (PUT - versioned)."""
+
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
 class AuthorUpdate(BaseModel):
     """Schema for updating an existing author (versioned)."""
 

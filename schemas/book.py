@@ -71,6 +71,12 @@ class BookCreate(BaseModel):
     )
 
 
+class BookReplace(BookCreate):
+    """Schema for fully replacing a book PUT - versioned)."""
+
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
 class BookUpdate(BaseModel):
     """Schema for updating an existing book (versioned)."""
 

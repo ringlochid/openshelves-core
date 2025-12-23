@@ -141,7 +141,7 @@ class TestBookUpdate:
     async def test_update_author_ids_invalidates_old_and_new(
         self, test_db, approved_book, approved_author
     ):
-        """Updating authors invalidates both OLD and NEW author IDs."""
+        """Updating authors invalidates both OLD and NEW author IDs via invalidate_book."""
         from routers.book import update_book
         from schemas.book import BookUpdate
 
@@ -160,7 +160,7 @@ class TestBookUpdate:
 
         # Book currently has approved_author
         await test_db.refresh(approved_book, ["authors"])
-        original_author_ids = [a.id for a in approved_book.authors]
+        original_author_ids = {a.id for a in approved_book.authors}
 
         owner = {
             "user_id": approved_book.created_by_user_id,  # UUID, not string
@@ -172,26 +172,26 @@ class TestBookUpdate:
             version=approved_book.version,
         )
 
-        mock_invalidate = AsyncMock()
+        mock_invalidate_book = AsyncMock()
 
         with patch("routers.book.cache.get_redis", return_value=AsyncMock()):
-            with patch("routers.book.cache.invalidate_author", new=mock_invalidate):
-                with patch("routers.book.cache.invalidate_book", new=AsyncMock()):
-                    with patch(
-                        "routers.book.cache.bump_cache_version", new=AsyncMock()
-                    ):
-                        book = await update_book(
-                            book_id=approved_book.id,
-                            data=data,
-                            current_user=owner,
-                            db=test_db,
-                            r=AsyncMock(),
-                        )
+            with patch("routers.book.cache.invalidate_book", new=mock_invalidate_book):
+                book = await update_book(
+                    book_id=approved_book.id,
+                    data=data,
+                    current_user=owner,
+                    db=test_db,
+                    r=AsyncMock(),
+                )
 
-        # Verify cache invalidation called for OLD author AND NEW author
-        # OLD: original_author_ids, NEW: [author2.id]
-        called_author_ids = {call[0][0] for call in mock_invalidate.call_args_list}
-        assert set(original_author_ids) | {author2.id} == called_author_ids
+        # Verify invalidate_book was called with author_ids containing OLD and NEW authors
+        mock_invalidate_book.assert_called_once()
+        call_kwargs = mock_invalidate_book.call_args
+        passed_author_ids = set(
+            call_kwargs.kwargs.get("author_ids", call_kwargs[1].get("author_ids", []))
+        )
+        expected_author_ids = original_author_ids | {author2.id}
+        assert passed_author_ids == expected_author_ids
 
     async def test_cannot_update_deleted_book(self, test_db, deleted_book):
         """Cannot update soft-deleted book."""

@@ -63,3 +63,4 @@ alembic.ini.local
 *.log
 *.sqlite
 *.db
+__pycache__/models.cpython-310.pyc

@@ -21,6 +21,7 @@ from dependencies.auth import (
 from models import Author, Book, AuthorFollow, ContentStatus, EditHistory, EditAction
 from schemas.author import (
     AuthorCreate,
+    AuthorReplace,
     AuthorUpdate,
     AuthorDetail,
     AuthorRead,
@@ -361,6 +362,122 @@ async def create_author(
     return AuthorDetail.model_validate(author)
 
 
+@router.put("/{author_id}", response_model=AuthorDetail)
+async def replace_author(
+    author_id: int,
+    data: AuthorReplace,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    Replace an author (full update with optimistic locking).
+    Requires scope "authors:update_own" or "authors:update_public_meta".
+    """
+    # Fetch author with books
+    query = (
+        select(Author).where(Author.id == author_id).options(selectinload(Author.books))
+    )
+    result = await db.execute(query)
+    author = result.scalar_one_or_none()
+
+    if not author:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Author not found"
+        )
+
+    # Check permissions
+    is_owner = author.created_by_user_id == current_user["user_id"]
+    user_scopes = current_user.get("scopes", [])
+    has_update_own = "authors:update_own" in user_scopes
+    has_update_public_meta = "authors:update_public_meta" in user_scopes
+
+    if is_owner and has_update_own:
+        # Owner can update their own author
+        pass
+    elif has_update_public_meta and author.status == ContentStatus.APPROVED:
+        # Wiki editor can update any APPROVED author
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Owner needs 'authors:update_own' or wiki-editor needs 'authors:update_public_meta' (APPROVED only)",
+        )
+
+    old_data = serialize_entity(author)
+    old_version = author.version
+
+    # Check version for optimistic locking
+    check_version_conflict(author.version, data.version, "author", author_id)
+    # Validate book_ids if provided
+    books = []
+    affected_books_ids = []
+    if data.book_ids:
+        book_query = select(Book).where(
+            and_(
+                Book.id.in_(data.book_ids),
+                Book.status == ContentStatus.APPROVED,
+                Book.is_public == True,
+                Book.is_deleted == False,
+            )
+        )
+        result = await db.execute(book_query)
+        books = result.scalars().all()
+
+        if len(books) != len(data.book_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more book IDs are invalid or not approved",
+            )
+
+        affected_books_ids = [book.id for book in books]
+
+    # Update author
+    author.name = data.name
+    author.email = data.email
+    author.bio = data.bio
+    author.avatar_key = data.avatar_key
+    author.books = list(books)
+
+    if data.linked_user_id:
+        await validate_user_exists(data.linked_user_id)
+
+    author.linked_user_id = data.linked_user_id
+
+    author.version += 1
+    author.last_edited_by = current_user["user_id"]
+    author.last_edited_at = datetime.now(timezone.utc)
+    author.updated_at = datetime.now(timezone.utc)
+
+    db.add(author)
+    await db.flush()
+
+    # Record update in edit history
+    await record_update(
+        db=db,
+        entity_type="author",
+        entity_id=author.id,
+        user_id=current_user["user_id"],
+        old_data=old_data,
+        new_data=serialize_entity(author),
+        old_version=old_version,
+        new_version=author.version,
+    )
+
+    affected_books_ids.extend([book.id for book in author.books])
+
+    await db.commit()
+
+    # Invalidate author lists cache (new author added)
+    # Pass book_ids explicitly to avoid DB query in cache layer
+    await cache.invalidate_author(author.id, r, book_ids=affected_books_ids)
+
+    # Refresh with books relationship loaded to avoid lazy load issues
+    await db.refresh(author)
+
+    return AuthorDetail.model_validate(author)
+
+
 @router.patch("/{author_id}", response_model=AuthorDetail)
 async def update_author(
     author_id: int,
@@ -458,6 +575,7 @@ async def update_author(
         author.books = list(found_books)
 
     # Increment version and update metadata
+    old_version = author.version
     author.version += 1
     author.last_edited_by = current_user["user_id"]
     author.last_edited_at = datetime.now(timezone.utc)
@@ -471,7 +589,7 @@ async def update_author(
         old_data=old_data,  # Already serialized above
         new_data=serialize_entity(author),
         new_version=author.version,
-        old_version=author.version - 1,
+        old_version=old_version,
     )
 
     await db.commit()
@@ -764,6 +882,7 @@ async def recover_deleted_author(
     else:
         author.is_public = False
 
+    old_version = author.version
     author.version += 1
     author.last_edited_by = current_user["user_id"]
     author.last_edited_at = datetime.now(timezone.utc)
@@ -777,7 +896,7 @@ async def recover_deleted_author(
         old_data=old_data,
         new_data=serialize_entity(author),
         new_version=author.version,
-        old_version=author.version - 1,
+        old_version=old_version,
     )
 
     await db.commit()

@@ -24,6 +24,7 @@ from models import (
 )
 from schemas.book import (
     BookCreate,
+    BookReplace,
     BookUpdate,
     BookDetail,
     BookListItem,
@@ -405,11 +406,125 @@ async def create_book(
     book_dict = BookDetail.model_validate(book).model_dump(mode="json")
     await cache.cache_book(book.id, book_dict, r)
 
-    # Invalidate list caches
-    await cache.bump_cache_version("books:list", r)
-    for author in author_objs:
-        await cache.invalidate_author(author.id, r, book_ids=[book.id])
+    # Invalidate list caches and author caches
+    author_ids = [author.id for author in author_objs]
+    await cache.invalidate_book(book.id, r, author_ids=author_ids)
 
+    return BookDetail.model_validate(book)
+
+
+@router.put("/{book_id}", response_model=BookDetail)
+async def replace_book(
+    book_id: int,
+    data: BookReplace,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    Replace an existing book with new data.
+    """
+    query = (
+        select(Book)
+        .where(Book.id == book_id)
+        .options(selectinload(Book.authors))
+        .options(selectinload(Book.reviews))
+    )
+    result = await db.execute(query)
+    book = result.scalar_one_or_none()
+
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+
+    # Check if deleted
+    if book.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE, detail="Book has been deleted"
+        )
+
+    # Permission check
+    user_id = current_user["user_id"]
+    user_scopes = current_user.get("scopes", [])
+    is_owner = book.created_by_user_id == user_id
+    has_update_own = "books:update_own" in user_scopes
+    is_wiki_editor = (
+        "books:edit_public_meta" in user_scopes
+        and book.status == ContentStatus.APPROVED
+    )
+
+    if is_owner and has_update_own:
+        # Owner can update their own book
+        pass
+    elif is_wiki_editor:
+        # Wiki editor can update any APPROVED book
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Owner needs 'books:update_own' or wiki-editor needs 'books:edit_public_meta' (APPROVED only)",
+        )
+
+    # Version conflict check
+    check_version_conflict(book.version, data.version, "book", book_id)
+
+    old_version = book.version
+    old_data = serialize_entity(book)
+
+    # replace book
+    book.title = data.title
+    book.year = data.year
+    book.description = data.description
+    book.tags = data.tags
+    book.cover_key = data.cover_key
+    book.file_key = data.file_key
+    book.file_format = data.file_format
+    book.version = old_version + 1
+
+    book.last_edited_by = user_id
+    book.last_edited_at = datetime.now(timezone.utc)
+    book.updated_at = datetime.now(timezone.utc)
+
+    # Update authors if provided
+    author_objs = []
+    affected_author_ids = [author.id for author in book.authors]
+    if data.author_ids is not None:
+        author_query = select(Author).where(
+            and_(
+                Author.id.in_(data.author_ids),
+                Author.status == ContentStatus.APPROVED,
+                Author.is_deleted == False,
+            )
+        )
+        result = await db.execute(author_query)
+        author_objs = list(result.scalars().all())
+
+        if len(author_objs) != len(data.author_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Some author IDs are invalid or not approved",
+            )
+
+    book.authors = author_objs
+    affected_author_ids.extend([author.id for author in author_objs])
+
+    # Record update in history
+    await record_update(
+        db=db,
+        entity_type="book",
+        entity_id=book.id,
+        user_id=user_id,
+        old_data=old_data,
+        new_data=serialize_entity(book),
+        new_version=book.version,
+        old_version=old_version,
+    )
+
+    await db.commit()
+    await db.refresh(book)
+
+    await cache.invalidate_book(book.id, r, author_ids=affected_author_ids)
     return BookDetail.model_validate(book)
 
 
@@ -536,11 +651,7 @@ async def update_book(
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
     affected_author_ids = list(previous_author_ids | new_author_ids)
-
-    for author_id in affected_author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=affected_author_ids)
 
     return BookDetail.model_validate(book)
 
@@ -605,10 +716,7 @@ async def delete_own_book(
 
     # Invalidate caches - pass author_ids to avoid DB query
     author_ids = [author.id for author in book.authors] if book.authors else []
-    for author_id in author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -660,10 +768,7 @@ async def delete_book(
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
-    for author_id in author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
 
 
 @router.post("/{book_id}/rollback", response_model=BookDetail)
@@ -795,11 +900,7 @@ async def rollback_book_version(
     # Invalidate caches (OLD ∪ NEW author IDs)
     new_author_ids = {author.id for author in book.authors}
     affected_author_ids = list(previous_author_ids | new_author_ids)
-
-    for author_id in affected_author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=affected_author_ids)
 
     return BookDetail.model_validate(book)
 
@@ -867,10 +968,7 @@ async def recover_deleted_book(
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
-    for author_id in author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
 
     return BookDetail.model_validate(book)
 
@@ -945,10 +1043,7 @@ async def approve_book(
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
-    for author_id in author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
 
     return BookDetail.model_validate(book)
 
@@ -1020,10 +1115,7 @@ async def reject_book(
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
-    for author_id in author_ids:
-        await cache.invalidate_author(author_id, r, book_ids=[book.id])
-    await cache.invalidate_book(book_id, r)
-    await cache.bump_cache_version("books:list", r)
+    await cache.invalidate_book(book_id, r, author_ids=author_ids)
 
     return BookDetail.model_validate(book)
 

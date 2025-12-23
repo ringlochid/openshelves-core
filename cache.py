@@ -13,6 +13,8 @@ from database import AsyncSessionLocal
 from models import Author, Book
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from datetime import datetime, timezone
+import math
 
 Redis = aioredis.Redis
 from_url = aioredis.from_url
@@ -251,6 +253,8 @@ async def invalidate_author(
     if book_ids is None:
         book_ids = await get_author_book_ids(author_id)
 
+    book_ids = list(set(book_ids))
+
     for book_id in book_ids:
         await invalidate_entity("book", book_id, r)
 
@@ -388,3 +392,44 @@ async def check_access_in_blacklist(jti: str, r: Redis | None = None) -> bool:
     r = r or await init_redis()
     key = make_access_blacklist_key(jti)
     return await r.exists(key) == 1
+
+
+# ========================================
+# RATE LIMITING
+# ========================================
+
+
+def make_rate_limit_key(prefix: str, identifier: str) -> str:
+    return f"rl:{prefix}:{identifier}"
+
+
+async def token_bucket_allow(
+    key: str,
+    capacity: int,
+    refill_tokens: int,
+    refill_period_seconds: int,
+    r: Redis | None = None,
+) -> tuple[bool, int]:
+    r = r or await init_redis()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    bucket = await r.hgetall(key)
+    tokens_raw = bucket.get("tokens") if bucket else None
+    last_refill_raw = bucket.get("last_refill_ms") if bucket else None
+
+    tokens = float(tokens_raw) if tokens_raw is not None else float(capacity)
+    last_refill = int(last_refill_raw) if last_refill_raw is not None else now_ms
+
+    elapsed_ms = max(0, now_ms - last_refill)
+    tokens += (elapsed_ms / (refill_period_seconds * 1000)) * refill_tokens
+    if tokens > capacity:
+        tokens = capacity
+
+    if tokens < 1:
+        return False, int(tokens)
+
+    tokens -= 1
+    await r.hset(key, mapping={"tokens": str(tokens), "last_refill_ms": str(now_ms)})
+    cycles = math.ceil(capacity / max(refill_tokens, 1))
+    bucket_ttl = max(refill_period_seconds * max(cycles, 1), 1)
+    await r.expire(key, bucket_ttl)
+    return True, int(tokens)
