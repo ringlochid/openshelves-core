@@ -53,7 +53,9 @@ from services.auth_client import (
     adjust_trust_for_review,
 )
 import cache
-from cache import Redis
+from cache import Redis, get_redis
+from helpers.request import get_request_ip
+from settings import settings
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
@@ -76,7 +78,9 @@ async def list_books(
     sort: list[str] = Query(
         default=[], description="Sort like 'similarity:desc', 'title:asc'"
     ),
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(get_redis),
 ):
     """
     List approved, public books with advanced search.
@@ -87,6 +91,19 @@ async def list_books(
     - Cursor-based pagination for consistent results
     - No authentication required
     """
+    rl_key = cache.make_rate_limit_key("books:list", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
     # Parse sort parameters
     sort_controls = []
     if q and not sort:
@@ -241,6 +258,7 @@ async def list_books(
 @router.get("/{book_id}", response_model=BookDetail)
 async def get_book(
     book_id: int,
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
 ):
@@ -248,6 +266,19 @@ async def get_book(
     Get detailed book information.
     Only shows approved, public books to unauthenticated users.
     """
+    rl_key = cache.make_rate_limit_key("books:get", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
     # Try cache first
     cached = await cache.get_book(book_id, r)
     if (
@@ -289,6 +320,7 @@ async def get_book(
 @router.get("/{book_id}/reviews", response_model=list[ReviewRead])
 async def get_book_reviews(
     book_id: int,
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
 ):
@@ -300,6 +332,20 @@ async def get_book_reviews(
     - Review is created, updated, or deleted
     - Review votes change (helpful/unhelpful counts)
     """
+    # Rate limiting
+    rl_key = cache.make_rate_limit_key("reviews:get", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
     # Try cache first
     cached = await cache.get_reviews(book_id, r)
     if cached is not None:
@@ -348,6 +394,23 @@ async def create_book(
     - If user has `books:publish_direct` scope: APPROVED + is_public=True
     - Otherwise: PENDING + is_public=False (enters jury queue)
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:create", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Check for direct publish privilege
     user_scopes = current_user.get("scopes", [])
     has_direct_publish = "books:publish_direct" in user_scopes
@@ -424,6 +487,23 @@ async def replace_book(
     """
     Replace an existing book with new data.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:replace", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = (
         select(Book)
         .where(Book.id == book_id)
@@ -543,6 +623,23 @@ async def update_book(
     - Owner: if book is PENDING
     - Contributor+: if book is APPROVED (wiki-style editing with books:edit_public_meta)
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:update", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Load book with relationships
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
@@ -668,6 +765,23 @@ async def delete_own_book(
     Soft-deletes the book by setting is_deleted=True.
     Requires 'books:delete_own' scope + ownership.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:delete", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch book with authors
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
@@ -730,6 +844,23 @@ async def delete_book(
     Soft delete a book (curator/admin only).
     Can be recovered within 24 hours.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:delete", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
@@ -784,6 +915,23 @@ async def rollback_book_version(
 
     Permissions: owner (if PENDING) or wiki-editor (if APPROVED)
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:rollback", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Load book
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
@@ -916,6 +1064,23 @@ async def recover_deleted_book(
     Recover a soft-deleted book (curator only).
     Only works within 24 hours of deletion.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:recover", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
@@ -989,6 +1154,22 @@ async def approve_book(
     Curator instant approval (+20 trust to submitter).
     Books get doubled trust reward due to file upload validation.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:approve", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
@@ -1060,6 +1241,22 @@ async def reject_book(
     Curator instant rejection (-10 trust to submitter).
     Books get doubled trust penalty due to file upload validation.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:reject", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
     result = await db.execute(query)
     book = result.scalar_one_or_none()
@@ -1136,6 +1333,22 @@ async def subscribe_to_book(
     Subscribe to book updates (NO trust reward).
     Social engagement is for tracking only.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:subscribe", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify book exists and is approved
     query = select(Book).where(
         and_(
@@ -1200,6 +1413,22 @@ async def unsubscribe_from_book(
     Unsubscribe from book updates.
     Decrements subscriber count.
     """
+    rl_key = cache.make_rate_limit_key(
+        "books:unsubscribe", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Find subscription
     query = select(BookSubscription).where(
         and_(
@@ -1252,6 +1481,22 @@ async def create_review(
     Create a review for an approved book.
     One review per user per book (unique constraint).
     """
+    rl_key = cache.make_rate_limit_key(
+        "reviews:create", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify book exists and is approved (load authors for cache invalidation)
     book_query = (
         select(Book)
@@ -1325,6 +1570,22 @@ async def update_review(
     Update your own review.
     Only rating and comment can be updated.
     """
+    rl_key = cache.make_rate_limit_key(
+        "reviews:update", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
     review = result.scalar_one_or_none()
@@ -1369,6 +1630,22 @@ async def delete_review(
     Soft delete your own review.
     Curators can delete any review with content:delete_any scope.
     """
+    rl_key = cache.make_rate_limit_key(
+        "reviews:delete", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
     review = result.scalar_one_or_none()
@@ -1417,6 +1694,22 @@ async def vote_on_review(
     - Unhelpful: -1 trust
     - Max ±5 trust per review
     """
+    rl_key = cache.make_rate_limit_key(
+        "reviews:vote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Load review
     query = select(Review).where(Review.id == review_id)
     result = await db.execute(query)
@@ -1525,6 +1818,22 @@ async def remove_review_vote(
     Remove your vote from a review.
     Reverses the trust adjustment.
     """
+    rl_key = cache.make_rate_limit_key(
+        "reviews:unvote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Find vote
     user_id = current_user["user_id"]  # Already UUID from auth dependency
     query = select(ReviewVote).where(

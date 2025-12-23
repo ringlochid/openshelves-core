@@ -99,24 +99,24 @@ class Settings(BaseSettings):
 
     # Rate Limiting (Token Bucket)
     # Read endpoints (GET) - generous limits
-    RATE_LIMIT_READ_CAPACITY: int = 100
-    RATE_LIMIT_READ_REFILL_TOKENS: int = 100
-    RATE_LIMIT_READ_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_READ_CAPACITY: int = 50
+    RATE_LIMIT_READ_REFILL_TOKENS: int = 50
+    RATE_LIMIT_READ_PERIOD_SECONDS: int = 120
 
     # Write endpoints (POST/PUT/PATCH) - moderate limits
     RATE_LIMIT_WRITE_CAPACITY: int = 30
     RATE_LIMIT_WRITE_REFILL_TOKENS: int = 30
-    RATE_LIMIT_WRITE_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_WRITE_PERIOD_SECONDS: int = 3600
 
     # Sensitive endpoints (create content, jury voting) - strict limits
     RATE_LIMIT_SENSITIVE_CAPACITY: int = 10
     RATE_LIMIT_SENSITIVE_REFILL_TOKENS: int = 10
-    RATE_LIMIT_SENSITIVE_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_SENSITIVE_PERIOD_SECONDS: int = 3600
 
     # Anonymous/IP-based rate limiting (unauthenticated requests)
     RATE_LIMIT_ANON_CAPACITY: int = 20
     RATE_LIMIT_ANON_REFILL_TOKENS: int = 20
-    RATE_LIMIT_ANON_PERIOD_SECONDS: int = 60
+    RATE_LIMIT_ANON_PERIOD_SECONDS: int = 180
 
     # Development Settings
     LOG_LEVEL: str = "INFO"

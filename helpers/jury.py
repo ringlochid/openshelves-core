@@ -12,6 +12,7 @@ import cache
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+from fastapi import HTTPException
 
 from models import JuryVote, Author, Book, Collection, ContentStatus
 from helpers.edit_history import serialize_entity, record_approval
@@ -191,7 +192,7 @@ async def retract_jury_vote(
         ValueError: If vote doesn't exist
     """
     # Find existing vote
-    vote = await db.scalar(
+    vote = await db.scalar_one_or_none(
         select(JuryVote).where(
             JuryVote.user_id == user_id,
             JuryVote.entity_type == entity_type,

@@ -1,6 +1,7 @@
 """
 Test configuration and fixtures for library service tests.
 """
+
 import pytest
 import asyncio
 from unittest.mock import patch
@@ -17,11 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # FAKE REDIS FOR TESTING
 # ========================================
 
+
 class FakeRedis:
     """
     Fake Redis client for testing to avoid event loop issues.
     Implements the Redis interface used by the app without actual connections.
     """
+
     def __init__(self):
         self.kv_store = {}
         self.hash_store = {}
@@ -30,7 +33,9 @@ class FakeRedis:
         return self.hash_store.get(key, {})
 
     async def hset(self, key, mapping):
-        self.hash_store.setdefault(key, {}).update({k: str(v) for k, v in mapping.items()})
+        self.hash_store.setdefault(key, {}).update(
+            {k: str(v) for k, v in mapping.items()}
+        )
 
     async def expire(self, key, seconds):
         return True
@@ -74,6 +79,7 @@ class FakeRedis:
 
 class _FakePipeline:
     """Fake Redis pipeline for testing."""
+
     def __init__(self, redis_client: FakeRedis):
         self.redis = redis_client
         self.ops = []
@@ -95,6 +101,7 @@ class _FakePipeline:
                 await self.redis.delete(key)
                 results.append(1)
         return results
+
 
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -130,37 +137,36 @@ async def db():
     """
     # Create engine
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
+
     # Create session factory
     async_session_maker = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-    
+
     async with async_session_maker() as session:
         # Start a transaction
         async with session.begin():
             yield session
             # Rollback after test
             await session.rollback()
-    
+
     await engine.dispose()
 
 
 @pytest.fixture
 async def client(db: AsyncSession):
     """Create an async test client with overridden database dependency."""
-    
+
     async def override_get_db():
         yield db
-    
+
     app.dependency_overrides[get_async_db] = override_get_db
-    
+
     async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
-    
+
     app.dependency_overrides.clear()
 
 
@@ -175,31 +181,32 @@ async def async_client(test_db: AsyncSession):
     from dependencies.auth import get_current_user
     import jwt as pyjwt
     from uuid import UUID
-    
+
     async def override_get_db():
         yield test_db
-    
+
     from fastapi import Header
     from fastapi.security import HTTPBearer
-    
+
     security = HTTPBearer()
-    
+
     async def mock_get_current_user(authorization: str = Header(None)) -> dict:
         """Mock authentication to decode test JWTs from Authorization header."""
         if not authorization or not authorization.startswith("Bearer "):
             from fastapi import HTTPException, status
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing or invalid authorization header",
             )
-        
+
         token = authorization.replace("Bearer ", "")
-        
+
         try:
             # Decode using RS256 with public key (matches production)
             payload = pyjwt.decode(
-                token, 
-                TEST_JWT_PUBLIC_KEY, 
+                token,
+                TEST_JWT_PUBLIC_KEY,
                 algorithms=[TEST_JWT_ALGORITHM],
                 audience=settings.JWT_AUDIENCE,
                 issuer=settings.JWT_ISSUER,
@@ -210,30 +217,30 @@ async def async_client(test_db: AsyncSession):
             return payload
         except pyjwt.InvalidTokenError as e:
             from fastapi import HTTPException, status
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token: {str(e)}",
             )
-    
+
     # Create FakeRedis for this test session
     fake_redis = FakeRedis()
-    
+
     async def override_get_redis():
         """Override Redis dependency to return FakeRedis."""
         return fake_redis
-    
+
     # Import cache module's get_redis to override it
     from cache import get_redis
-    
+
     # Override database and all auth dependencies
     app.dependency_overrides[get_async_db] = override_get_db
     app.dependency_overrides[get_current_user] = mock_get_current_user
     app.dependency_overrides[get_redis] = override_get_redis
-    
+
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
+            transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
             yield ac
     finally:
@@ -248,12 +255,12 @@ async def test_db():
     """
     # Create engine
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
+
     # Create session factory
     async_session_maker = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-    
+
     async with async_session_maker() as session:
         # Start a transaction
         async with session.begin():
@@ -261,19 +268,20 @@ async def test_db():
             # This allows code to call commit() in tests without breaking the transaction
             original_commit = session.commit
             session.commit = session.flush
-            
+
             yield session
-            
+
             # Restore original commit and rollback
             session.commit = original_commit
             await session.rollback()
-    
+
     await engine.dispose()
 
 
 # ========================================
 # AUTH FIXTURES
 # ========================================
+
 
 @pytest.fixture
 def mock_jwt_user():
@@ -286,12 +294,13 @@ def mock_jwt_user():
         "roles": ["contributor"],
         "trust_score": 50,
     }
-    
+
     # Patch all auth dependencies
-    with patch("dependencies.auth.get_current_user", return_value=user_data), \
-         patch("dependencies.auth.require_scope", return_value=user_data), \
-         patch("dependencies.auth.require_role", return_value=user_data), \
-         patch("dependencies.auth.require_min_trust", return_value=user_data):
+    with patch("dependencies.auth.get_current_user", return_value=user_data), patch(
+        "dependencies.auth.require_scope", return_value=user_data
+    ), patch("dependencies.auth.require_role", return_value=user_data), patch(
+        "dependencies.auth.require_min_trust", return_value=user_data
+    ):
         yield user_data
 
 
@@ -306,18 +315,20 @@ def mock_admin_user():
         "roles": ["admin"],
         "trust_score": 100,
     }
-    
+
     # Patch all auth dependencies
-    with patch("dependencies.auth.get_current_user", return_value=user_data), \
-         patch("dependencies.auth.require_scope", return_value=user_data), \
-         patch("dependencies.auth.require_role", return_value=user_data), \
-         patch("dependencies.auth.require_min_trust", return_value=user_data):
+    with patch("dependencies.auth.get_current_user", return_value=user_data), patch(
+        "dependencies.auth.require_scope", return_value=user_data
+    ), patch("dependencies.auth.require_role", return_value=user_data), patch(
+        "dependencies.auth.require_min_trust", return_value=user_data
+    ):
         yield user_data
 
 
 # ========================================
 # REDIS FIXTURES
 # ========================================
+
 
 @pytest.fixture(scope="function")
 async def redis():
@@ -330,15 +341,38 @@ async def redis():
     # Cleanup is automatic since it's just a dict in memory
 
 
+# Helper function for mocking rate limiting in tests
+async def mock_token_bucket_allow(*args, **kwargs):
+    """Always allow requests in tests - bypasses rate limiting."""
+    return (True, 99)
+
+
+@pytest.fixture(autouse=True)
+def mock_rate_limit():
+    """
+    Auto-applied fixture to bypass rate limiting in all tests.
+    Tests shouldn't hit rate limits during normal testing.
+    """
+    with patch("routers.book.cache.token_bucket_allow", new=mock_token_bucket_allow):
+        with patch(
+            "routers.author.cache.token_bucket_allow", new=mock_token_bucket_allow
+        ):
+            with patch(
+                "routers.jury.cache.token_bucket_allow", new=mock_token_bucket_allow
+            ):
+                yield
+
+
 # ========================================
 # BOOK & REVIEW FIXTURES (Phase 3)
 # ========================================
+
 
 @pytest.fixture
 async def approved_author(test_db):
     """Create an approved, public author for book tests."""
     from models import Author, ContentStatus
-    
+
     author = Author(
         name="Test Author",
         email="author@example.com",
@@ -358,7 +392,7 @@ async def approved_author(test_db):
 async def pending_book(test_db, approved_author):
     """Create a pending book for approval tests."""
     from models import Book, ContentStatus
-    
+
     book = Book(
         title="Pending Test Book",
         year=2023,
@@ -380,7 +414,7 @@ async def pending_book(test_db, approved_author):
 async def approved_book(test_db, approved_author):
     """Create an approved, public book for testing."""
     from models import Book, ContentStatus
-    
+
     book = Book(
         title="Approved Test Book",
         year=2023,
@@ -401,7 +435,7 @@ async def approved_book(test_db, approved_author):
 async def rejected_book(test_db, approved_author):
     """Create a rejected book for testing."""
     from models import Book, ContentStatus
-    
+
     book = Book(
         title="Rejected Test Book",
         year=2023,
@@ -422,7 +456,7 @@ async def deleted_book(test_db, approved_author):
     """Create a soft-deleted book for recovery tests."""
     from models import Book, ContentStatus
     from datetime import datetime, timezone
-    
+
     book = Book(
         title="Deleted Test Book",
         year=2023,

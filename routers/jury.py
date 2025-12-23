@@ -23,6 +23,7 @@ from helpers.jury import (
 import cache
 from cache import Redis
 from uuid import UUID
+from settings import settings
 
 
 router = APIRouter(prefix="/jury", tags=["Jury Voting"])
@@ -50,6 +51,22 @@ async def list_pending_authors(
     Shows authors awaiting jury votes or curator approval.
     Cached with version-based invalidation (bumped when voting/approval happens).
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:authors:list", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Try cache first
     params = {"page": page, "per_page": per_page, "sort": sort, "order": order}
     cached = await cache.get_list("jury:authors", params, r=r)
@@ -111,6 +128,22 @@ async def get_pending_author_detail(
     Shows full author details plus voting status.
     Uses author cache (invalidated on any author change).
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:authors:get", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Try cache first (uses same author cache as public endpoint)
     cached = await cache.get_author(author_id, r)
     if cached and cached.get("status") == "PENDING":
@@ -163,6 +196,22 @@ async def vote_on_author(
 
     Auto-publishes when vote_score >= 5 (awards +10 trust to submitter).
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:authors:vote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Check if user has voting permissions
     user_scopes = current_user.get("scopes", [])
 
@@ -237,11 +286,28 @@ async def retract_vote_on_author(
     author_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Retract your jury vote on a pending author.
     Decrements the vote_score by your vote value.
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:authors:unvote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Check if user has voting permissions
     user_scopes = current_user.get("scopes", [])
 
@@ -268,11 +334,28 @@ async def get_author_vote_status(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Get voting status for a pending author.
     Shows current score, threshold, and who voted.
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:authors:votes", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify author exists
     query = select(Author).where(Author.id == author_id)
     result = await db.execute(query)
@@ -314,6 +397,22 @@ async def list_pending_books(
 
     Shows books awaiting jury votes or curator approval.
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:books:list", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Try cache first
     params = {"page": page, "per_page": per_page, "sort": sort, "order": order}
     cached = await cache.get_list("jury:books", params, r=r)
@@ -368,6 +467,22 @@ async def get_pending_book_detail(
     r: Redis = Depends(cache.get_redis),
 ):
     """Get detailed information about a pending book in the jury queue."""
+    rl_key = cache.make_rate_limit_key(
+        "jury:books:get", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     query = (
         select(Book)
         .where(
@@ -401,6 +516,22 @@ async def vote_on_book(
     Cast a jury vote on a pending book.
     Vote weight based on user scopes (contributor=1, trusted=5).
     """
+    rl_key = cache.make_rate_limit_key(
+        "jury:books:vote", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify book is PENDING (eagerly load authors for cache invalidation)
     query = (
         select(Book)
@@ -451,14 +582,33 @@ async def retract_vote_on_book(
     book_id: int,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """Retract your jury vote on a pending book."""
-    await retract_jury_vote(
-        db=db,
-        entity_type="book",
-        entity_id=book_id,
-        user_id=current_user["user_id"],
+    rl_key = cache.make_rate_limit_key(
+        "jury:books:unvote", current_user.get("user_id") or "unknown"
     )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+    try:
+        await retract_jury_vote(
+            db=db,
+            entity_type="book",
+            entity_id=book_id,
+            user_id=current_user["user_id"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     await db.commit()
 
@@ -468,8 +618,25 @@ async def get_book_vote_status(
     book_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """Get voting status and statistics for a pending book."""
+    rl_key = cache.make_rate_limit_key(
+        "jury:books:votes", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     status = await get_vote_status(
         db=db,
         entity_type="book",

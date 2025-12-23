@@ -46,6 +46,8 @@ import cache
 from cache import Redis
 from services.auth_client import validate_user_exists
 from helpers.edit_history import record_update
+from helpers.request import get_request_ip
+from settings import settings
 
 
 router = APIRouter(prefix="/authors", tags=["Authors"])
@@ -63,7 +65,9 @@ async def list_authors(
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     List approved, public authors with similarity search and cursor pagination.
@@ -73,6 +77,20 @@ async def list_authors(
     - Uses cursor-based pagination for consistent results
     - No authentication required
     """
+    rl_key = cache.make_rate_limit_key("authors:list", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Base conditions
     base_conditions = and_(
         Author.status == ContentStatus.APPROVED,
@@ -173,6 +191,7 @@ async def list_authors(
 @router.get("/{author_id}", response_model=AuthorDetail)
 async def get_author(
     author_id: int,
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
 ):
@@ -180,6 +199,20 @@ async def get_author(
     Get detailed author information.
     Only shows approved, public authors to unauthenticated users.
     """
+    rl_key = cache.make_rate_limit_key("authors:get", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Try cache first, but verify status (prevent pending data leak from jury cache)
     cached = await cache.get_author(author_id, r)
     if (
@@ -220,12 +253,28 @@ async def get_author(
 @router.get("/{author_id}/books", response_model=list[BookRead])
 async def get_author_books(
     author_id: int,
+    ip: str | None = Depends(get_request_ip),
     db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
 ):
     """
     Get all approved books by an author.
     Only shows books from approved, public authors.
     """
+    rl_key = cache.make_rate_limit_key("authors:books:get", ip or "unknown")
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_READ_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify author exists and is public
     author_query = select(Author).where(
         and_(
@@ -284,6 +333,22 @@ async def create_author(
     1. Trusted users with 'authors:publish_direct' → status=APPROVED (bypasses jury queue)
     2. Regular users → status=PENDING (requires jury voting or curator approval)
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:create", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Validate book_ids if provided
     books = []
     if data.book_ids:
@@ -374,6 +439,22 @@ async def replace_author(
     Replace an author (full update with optimistic locking).
     Requires scope "authors:update_own" or "authors:update_public_meta".
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:replace", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author with books
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -494,6 +575,22 @@ async def update_author(
     - Non-owner with 'authors:edit_public_meta': Can update ANY APPROVED author (wiki mode)
     - Both: Allowed (owner overrides wiki-editor restrictions)
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:update", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author with books
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -626,6 +723,22 @@ async def rollback_author_version(
 
     Creates a new version with the old data (does not revert version number).
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:rollback", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -781,6 +894,22 @@ async def delete_own_author(
     Soft-deletes the author by setting is_deleted=True.
     Requires 'authors:delete_own' scope + ownership.
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:delete", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author with books
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -845,6 +974,22 @@ async def recover_deleted_author(
 
     Requires 'jury:override' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:recover", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch deleted author
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -932,6 +1077,22 @@ async def takedown_author(
     Used for DMCA, illegal content, spam removal.
     Requires 'content:takedown' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:delete", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author
     query = (
         select(Author).where(Author.id == author_id).options(selectinload(Author.books))
@@ -986,6 +1147,22 @@ async def follow_author(
     Follow an author (no trust reward).
     Requires authentication.
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:follow", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Verify author exists and is approved (with lock to prevent race conditions)
     query = (
         select(Author)
@@ -1062,6 +1239,22 @@ async def unfollow_author(
     Decrements follower count.
     Requires authentication.
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:unfollow", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Find follow relationship
     query = select(AuthorFollow).where(
         and_(
@@ -1113,6 +1306,22 @@ async def approve_author(
     Clears any existing jury votes and approves immediately.
     Awards +10 trust points to submitter.
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:approve", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author (lock to prevent concurrent approvals/rejections)
     query = select(Author).where(Author.id == author_id).with_for_update()
     result = await db.execute(query)
@@ -1199,6 +1408,22 @@ async def reject_author(
     Clears any existing jury votes and rejects immediately.
     Deducts -5 trust points from submitter.
     """
+    rl_key = cache.make_rate_limit_key(
+        "authors:reject", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
     # Fetch author (lock to prevent concurrent approvals/rejections)
     query = select(Author).where(Author.id == author_id).with_for_update()
     result = await db.execute(query)
