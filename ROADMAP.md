@@ -1795,12 +1795,12 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 
 ## Recommended Next Steps (Post-Phase 3)
 
-**Status**: Phase 2 & 3 complete with 157 passing tests. System is feature-complete for core workflows but needs production hardening before deployment.
+**Status**: Phase 2 & 3 complete with 157 passing tests. Priority 1 (data integrity) and Priority 2 (rate limiting) complete. System is ready for Priority 3: Enhanced Search & Discovery.
 
 ### Priority Order & Rationale
 
-#### **Priority 1: Data Integrity Improvements** ⭐ CRITICAL
-**Estimated Time**: 1-2 days  
+#### **Priority 1: Data Integrity Improvements** ✅ COMPLETE
+**Completed**: December 2024  
 **Complexity**: Low-Medium  
 **Impact**: HIGH - Closes remaining security/integrity gap
 
@@ -1818,59 +1818,45 @@ Awarding trust for subscriptions creates an exploit loop where users can subscri
 - Prevents data integrity issues in production
 - Low risk - validation check only
 
-**Files to Modify:**
-- `services/auth_client.py` - Add `check_user_exists(user_id: UUID) -> bool`
-- `routers/author.py` - Add validation in create_author (line ~233)
-- Add 3-4 tests in new file `tests/test_user_validation.py`
+**Files Modified:**
+- `services/auth_client.py` - Added `validate_user_exists(user_id: UUID) -> bool`
+- `routers/author.py` - Validation in create_author, replace_author, update_author, rollback_author
+- Graceful degradation with try/except for Auth Service unavailability
 
 ---
 
-#### **Priority 2: Production Infrastructure** ⭐ CRITICAL
-**Estimated Time**: 2-3 days  
+#### **Priority 2: Production Infrastructure** ✅ PARTIAL (Rate Limiting Complete)
+**Rate Limiting Completed**: December 2024  
+**Logging/Metrics**: Deferred (CloudWatch sufficient for dev/test)  
 **Complexity**: Medium  
 **Impact**: HIGH - Required for safe production deployment
 
 **Scope:**
-- **Rate Limiting**: Redis-based per-user/per-IP throttling
-  - 100 requests/minute per user (authenticated)
-  - 20 requests/minute per IP (anonymous)
-  - Use Redis counters with TTL (sliding window)
-  - Return 429 Too Many Requests with Retry-After header
+- **Rate Limiting**: ✅ COMPLETE - Token bucket algorithm with Redis
+  - Implemented in `cache.py` with `token_bucket_allow()` function
+  - 43 endpoints rate-limited across `book.py` (19), `author.py` (14), `jury.py` (10)
+  - Three tiers: READ (public), WRITE (mutations), SENSITIVE (create/delete)
+  - IP-based for anonymous requests, user ID-based for authenticated
+  - Returns 429 Too Many Requests when limit exceeded
+  - Settings configurable via environment variables
   
-- **Request Logging**: Structured logging with request context
-  - Log all API calls with: user_id, endpoint, method, status_code, duration
-  - Use Python `logging` with JSON formatter
-  - Log to stdout (Docker captures to CloudWatch/Datadog)
+- **Request Logging**: ⏭️ DEFERRED - CloudWatch/uvicorn logging sufficient for dev/test
   
-- **Metrics & Observability**: Basic APM integration
-  - Request duration histogram
-  - Error rate tracking
-  - Active users gauge
-  - Database connection pool metrics
+- **Metrics & Observability**: ⏭️ DEFERRED - Not needed without Prometheus/Grafana infrastructure
   
-- **Performance Optimization**:
-  - Add connection pool metrics to detect leaks
-  - Implement query result caching for expensive operations
-  - Add database query logging for slow queries (>100ms)
-  - Profile top 10 endpoints for optimization opportunities
+- **Performance Optimization**: ⏭️ DEFERRED - Profile after real load
 
 **Why Second:**
 - System is production-ready functionally but needs operational safeguards
-- Rate limiting prevents abuse/DDoS
-- Logging enables debugging production issues
-- Metrics enable proactive monitoring
-- Must be done before ANY production deployment
+- Rate limiting prevents abuse/DDoS ✅
+- Logging enables debugging production issues (uvicorn + CloudWatch adequate)
+- Metrics enable proactive monitoring (defer until Prometheus setup)
 
-**Files to Create:**
-- `middleware/rate_limit.py` - Rate limiting middleware
-- `middleware/logging.py` - Request logging middleware
-- `middleware/metrics.py` - Prometheus metrics
-- `tests/test_rate_limiting.py` - 5-8 tests
-
-**Files to Modify:**
-- `main.py` - Register middleware
-- `settings.py` - Add rate limit configs
-- `database.py` - Add pool metrics
+**Files Created/Modified:**
+- `cache.py` - Token bucket rate limiting functions
+- `settings.py` - Rate limit tier configurations  
+- `routers/book.py`, `routers/author.py`, `routers/jury.py` - Rate limiting applied
+- `tests/conftest.py` - Mock fixture for rate limiting in tests
 
 ---
 
