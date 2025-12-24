@@ -20,7 +20,6 @@ app.conf.update(
     worker_prefetch_multiplier=1,
     task_routes={
         "tasks.media.*": {"queue": "media"},
-        "tasks.email.*": {"queue": "email"},
         "tasks.analytics.*": {"queue": "analytics"},
         "tasks.cleanup.*": {"queue": "default"},
     },
@@ -52,5 +51,8 @@ app.conf.update(
     },
 )
 
-# Ensure tasks under app.tasks.* are registered
-app.autodiscover_tasks(["tasks"])
+# Import tasks directly to register them with Celery
+# (autodiscover_tasks doesn't work well with our flat structure)
+import tasks.media
+import tasks.cleanup
+import tasks.analytics

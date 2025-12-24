@@ -47,20 +47,17 @@ class BookSortControl(BaseModel):
 
 
 class BookCreate(BaseModel):
-    """Schema for creating a new book submission."""
+    """Schema for creating a new book submission.
+
+    Note: cover_key/file_key/file_format are set via upload pipeline only,
+    not directly in create/update endpoints.
+    """
 
     title: str = Field(..., min_length=1, max_length=500, description="Book title")
     year: int | None = Field(None, gt=0, description="Publication year")
     description: str | None = Field(None, description="Book description")
     tags: list[str] = Field(
         default_factory=list, description="Tags like ['fantasy', 'classic']"
-    )
-    cover_key: str | None = Field(None, description="S3 key for cover image")
-    file_key: str | None = Field(
-        None, description="S3 key for book file (PDF/EPUB/MOBI)"
-    )
-    file_format: str | None = Field(
-        None, pattern="^(pdf|epub|mobi)$", description="File format"
     )
     author_ids: list[int] = Field(
         default_factory=list, description="Authors to associate"
@@ -74,15 +71,15 @@ class BookReplace(BookCreate):
 
 
 class BookUpdate(BaseModel):
-    """Schema for updating an existing book (versioned)."""
+    """Schema for updating an existing book (versioned).
+
+    Note: cover_key/file_key/file_format cannot be set directly - use upload endpoints.
+    """
 
     title: str | None = Field(None, min_length=1, max_length=500)
     year: int | None = Field(None, gt=0)
     description: str | None = None
     tags: list[str] | None = None
-    cover_key: str | None = None
-    file_key: str | None = None
-    file_format: str | None = Field(None, pattern="^(pdf|epub|mobi)$")
     author_ids: list[int] | None = None
     version: int = Field(..., description="Current version for optimistic locking")
 

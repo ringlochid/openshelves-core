@@ -2019,36 +2019,36 @@ Subscription/unsubscription loops can be exploited to farm unlimited trust. Soci
 - Collection rejection: -5 trust (same as author rejection)
 
 ### Collection Router
-- [ ] Create `routers/collection.py`
+- [x] Create `routers/collection.py`
 
 **Public Endpoints:**
-- [ ] `GET /collections` - List public collections
+- [x] `GET /collections` - List public collections
   - Filter: `is_public=True`, `is_deleted=False`, `status=approved`
   - Pagination: limit/offset
   - Return: `List[CollectionRead]`
 
-- [ ] `GET /collections/{id}` - Collection detail with books
+- [x] `GET /collections/{id}` - Collection detail with books
   - Eager load books in collection
   - Return: `CollectionDetail`
 
 **Authenticated Endpoints:**
-- [ ] `POST /collections` - Create collection (pending)
+- [x] `POST /collections` - Create collection (pending)
   - Requires: `content:submit`
   - Set: `status=pending`, `is_public=False`
   - Return: `CollectionRead`
 
-- [ ] `PATCH /collections/{id}` - Update collection (with version check)
+- [x] `PATCH /collections/{id}` - Update collection (with version check)
   - Requires: owner OR `content:edit_any`
   - Query param: `expected_version`
   - Apply updates
   - Record edit history
   - Return: `CollectionRead`
 
-- [ ] `DELETE /collections/{id}` - Soft delete
+- [x] `DELETE /collections/{id}` - Soft delete
   - Requires: owner OR `content:delete_any`
   - Return: 204
 
-- [ ] `POST /collections/{id}/books` - Add book to collection
+- [x] `POST /collections/{id}/books` - Add book to collection
   - Requires: owner OR `content:edit_any`
   - Body: `{"book_id": int, "position": int}`
   - Validate book exists and is public
@@ -2057,7 +2057,7 @@ Subscription/unsubscription loops can be exploited to farm unlimited trust. Soci
   - Record edit history
   - Return: `{"message": "...", "book_count": N}`
 
-- [ ] `DELETE /collections/{id}/books/{book_id}` - Remove book
+- [x] `DELETE /collections/{id}/books/{book_id}` - Remove book
   - Requires: owner OR `content:edit_any`
   - Delete `CollectionBook` record
   - Bump collection version
@@ -2065,55 +2065,55 @@ Subscription/unsubscription loops can be exploited to farm unlimited trust. Soci
   - Return: 204
 
 **Curator Endpoints:**
-- [ ] `GET /admin/collections/pending` - List pending
+- [x] `GET /admin/collections/pending` - List pending
   - Requires: `content:review`
   - Return: `List[CollectionRead]`
 
-- [ ] `POST /admin/collections/{id}/approve` - Approve
+- [x] `POST /admin/collections/{id}/approve` - Approve
   - Requires: `content:approve`
   - Set: `status=approved`, `is_public=True`
   - Call Auth Service: `adjust_trust(+10, source="upload")`
   - Return: `{"message": "...", "trust_delta": 10}`
 
-- [ ] `POST /admin/collections/{id}/reject` - Reject
+- [x] `POST /admin/collections/{id}/reject` - Reject
   - Requires: `content:approve`
   - Query param: `reason`
   - Call Auth Service: `adjust_trust(-5, source="upload")`
   - Return: `{"message": "...", "trust_delta": -5}`
 
-- [ ] `POST /admin/collections/{id}/recover` - Recover
+- [x] `POST /admin/collections/{id}/recover` - Recover
   - Requires: `content:recover`
   - Return: `CollectionRead`
 
 **Social Endpoints:**
-- [ ] `POST /collections/{id}/subscribe` - Subscribe
+- [x] `POST /collections/{id}/subscribe` - Subscribe
   - Requires: `social:follow`
   - Create `CollectionSubscription`
   - Increment `subscriber_count`
   - ⚠️ **NO TRUST REWARDS** - Social engagement is for tracking only (prevents subscribe/unsubscribe exploit loop)
   - Return: `{"message": "...", "subscriber_count": N}`
 
-- [ ] `DELETE /collections/{id}/subscribe` - Unsubscribe
+- [x] `DELETE /collections/{id}/subscribe` - Unsubscribe
   - Delete subscription
   - Decrement count
   - Return: 204
 
 ### Collection Schemas
-- [ ] Create `schemas/collection.py`
+- [x] Create `schemas/collection.py`
   - `CollectionCreate` - name, description
   - `CollectionUpdate` - partial updates
   - `CollectionRead` - basic info with subscriber_count
   - `CollectionDetail` - includes books list
 
 ### Testing
-- [ ] Test create collection (pending)
-- [ ] Test approve collection (trust +10)
-- [ ] Test reject collection (trust -5)
-- [ ] Test update with version check
-- [ ] Test soft delete and recover
-- [ ] Test add/remove books from collection
-- [ ] Test subscribe/unsubscribe
-- [ ] Test permission checks
+- [x] Test create collection (pending)
+- [x] Test approve collection (trust +10)
+- [x] Test reject collection (trust -5)
+- [x] Test update with version check
+- [x] Test soft delete and recover
+- [x] Test add/remove books from collection
+- [x] Test subscribe/unsubscribe
+- [x] Test permission checks
 
 ---
 

@@ -192,23 +192,6 @@ async def get_author_book_ids(author_id: int) -> list[int]:
         return []
 
 
-async def get_book_author_ids(book_id: int) -> list[int]:
-    """
-    Get IDs of authors associated with a book.
-    Used for cascading cache invalidation.
-    """
-    async with AsyncSessionLocal() as db:
-        query = (
-            select(Book).where(Book.id == book_id).options(selectinload(Book.authors))
-        )
-        result = await db.execute(query)
-        book = result.scalar_one_or_none()
-
-        if book and book.authors:
-            return [author.id for author in book.authors]
-        return []
-
-
 # ========================================
 # AUTHOR CACHING
 # ========================================
@@ -471,3 +454,108 @@ async def token_bucket_allow(
     bucket_ttl = max(refill_period_seconds * max(cycles, 1), 1)
     await r.expire(key, bucket_ttl)
     return True, int(tokens)
+
+
+# ========================================
+# UPLOAD CLAIM MANAGEMENT (Redis-based)
+# ========================================
+
+
+def create_worker_redis():
+    """
+    Create a fresh async Redis client for Celery worker use.
+
+    This avoids event loop conflicts that occur when reusing
+    Redis clients bound to the import-time event loop.
+
+    Celery tasks run with asyncio.run() which creates a new event loop.
+
+    Returns:
+        Redis client - caller must close when done.
+    """
+    return from_url(
+        settings.redis_url,
+        decode_responses=True,
+    )
+
+
+def make_upload_claim_key(user_id, upload_id) -> str:
+    """Generate Redis key for upload claim."""
+    return f"upload_claim:{user_id}:{upload_id}"
+
+
+async def create_upload_claim(
+    user_id,
+    upload_id,
+    s3_key: str,
+    upload_type: str,
+    entity_type: str,
+    entity_id: int,
+    entity_version: int,
+    expected_mime: str,
+    max_bytes: int,
+    expires_at_ts: int,
+    ttl_seconds: int,
+    r: Redis | None = None,
+) -> None:
+    """
+    Store an upload claim in Redis with TTL.
+    The claim is consumed (deleted) when commit is called.
+
+    Args:
+        user_id: User UUID
+        upload_id: Upload UUID (from presign response)
+        s3_key: S3 key for the upload
+        upload_type: Type of upload (cover, avatar, file)
+        entity_type: Entity type (author, book, collection)
+        entity_id: Entity ID
+        entity_version: Entity version at time of presign (for optimistic locking)
+        expected_mime: Expected MIME type
+        max_bytes: Maximum file size
+        expires_at_ts: Expiration timestamp (unix)
+        ttl_seconds: Redis TTL for this claim
+        r: Redis client
+    """
+    r = r or await init_redis()
+    key = make_upload_claim_key(user_id, upload_id)
+    await r.hset(
+        key,
+        mapping={
+            "key": s3_key,
+            "upload_type": upload_type,
+            "entity_type": entity_type,
+            "entity_id": str(entity_id),
+            "entity_version": str(entity_version),
+            "mime": expected_mime,
+            "max_bytes": str(max_bytes),
+            "exp_ts": str(expires_at_ts),
+        },
+    )
+    await r.expire(key, ttl_seconds)
+
+
+async def consume_upload_claim(
+    user_id,
+    upload_id,
+    r: Redis | None = None,
+) -> dict | None:
+    """
+    Atomically retrieve and delete an upload claim.
+    Returns the claim data if found, None if expired/missing.
+
+    This ensures each presigned URL can only be committed once.
+    """
+    r = r or await init_redis()
+    key = make_upload_claim_key(user_id, upload_id)
+
+    # Atomic get + delete using pipeline
+    pipe = r.pipeline()
+    pipe.hgetall(key)
+    pipe.delete(key)
+    results = await pipe.execute()
+
+    claim = results[0] if results else None
+    if not claim:
+        return None
+
+    return claim

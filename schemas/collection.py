@@ -47,11 +47,13 @@ class CollectionSortControl(BaseModel):
 
 
 class CollectionCreate(BaseModel):
-    """Schema for creating a new collection submission."""
+    """Schema for creating a new collection submission.
+
+    Note: cover_key is set via upload pipeline only, not directly.
+    """
 
     name: str = Field(..., min_length=1, max_length=200, description="Collection name")
     description: str | None = Field(None, description="Collection description")
-    cover_key: str | None = Field(None, description="S3 key for collection cover image")
     book_ids: list[int] = Field(
         default_factory=list,
         max_length=100,
@@ -60,11 +62,13 @@ class CollectionCreate(BaseModel):
 
 
 class CollectionUpdate(BaseModel):
-    """Schema for updating an existing collection (versioned)."""
+    """Schema for updating an existing collection (versioned).
+
+    Note: cover_key cannot be set directly - use upload endpoints.
+    """
 
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = None
-    cover_key: str | None = None
     book_ids: list[int] | None = Field(
         None, max_length=100, description="Replace all books (position = index + 1)"
     )

@@ -257,64 +257,6 @@ async def adjust_trust_for_review(
     )
 
 
-async def adjust_trust_for_social_bonus(
-    user_id: UUID,
-    action: str,
-    entity_type: str,
-    entity_id: int,
-) -> dict:
-    """
-    ⚠️ DEPRECATED - DO NOT USE ⚠️
-
-    This function is kept for reference only and should NEVER be called.
-
-    SECURITY DECISION (Phase 2.4):
-    Social engagement trust rewards have been REMOVED to prevent exploit loops.
-    Users could repeatedly follow/unfollow or subscribe/unsubscribe to farm
-    unlimited trust points.
-
-    Trust is now earned ONLY through:
-    - Content approval (+10 for authors/collections, +20 for books)
-    - Review helpfulness voting (±1 per vote, max ±5 per review)
-
-    If you need to award trust, use:
-    - adjust_trust_for_approval() for content approval
-    - adjust_trust_for_rejection() for content rejection
-
-    Original behavior (REMOVED):
-    +3 per action, capped at +6 per entity by Auth Service.
-
-    Args:
-        user_id: Content creator's UUID
-        action: "follow" or "subscribe"
-        entity_type: "author", "book", or "collection"
-        entity_id: Entity's ID
-
-    Returns:
-        Error indicating this function should not be used
-    """
-    raise RuntimeError(
-        "adjust_trust_for_social_bonus() is DEPRECATED and should not be called. "
-        "Social engagement trust rewards were removed in Phase 2.4 to prevent exploit loops."
-    )
-
-    # Old implementation (DO NOT RESTORE):
-    # reason = f"{entity_type.capitalize()} {action}ed"
-    # metadata = {
-    #     "entity_type": entity_type,
-    #     "entity_id": entity_id,
-    #     "action": action,
-    #     "bonus_type": "social_engagement",
-    # }
-    #
-    # return await auth_service_client.adjust_user_trust(
-    #     user_id=user_id,
-    #     delta=3,
-    #     reason=reason,
-    #     metadata=metadata,
-    # )
-
-
 async def validate_user_exists(user_id: UUID) -> bool:
     """
     Check if a user exists in the Auth Service.

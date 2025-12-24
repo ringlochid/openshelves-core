@@ -47,7 +47,6 @@ from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rej
 import cache
 from cache import Redis
 from services.auth_client import validate_user_exists
-from helpers.edit_history import record_update
 from helpers.request import get_request_ip
 from settings import settings
 
@@ -462,7 +461,7 @@ async def create_author(
         name=data.name,
         email=data.email,
         bio=data.bio,
-        avatar_key=data.avatar_key,
+        # Note: avatar_key set via upload pipeline, not create endpoint
         created_by_user_id=current_user["user_id"],
         linked_user_id=data.linked_user_id,
         status=ContentStatus.APPROVED if can_publish_direct else ContentStatus.PENDING,
@@ -597,7 +596,7 @@ async def replace_author(
     author.name = data.name
     author.email = data.email
     author.bio = data.bio
-    author.avatar_key = data.avatar_key
+    # Note: avatar_key not settable via PUT - use upload endpoints
     author.books = list(books)
 
     if data.linked_user_id:
@@ -720,8 +719,7 @@ async def update_author(
         author.email = data.email
     if data.bio is not None:
         author.bio = data.bio
-    if data.avatar_key is not None:
-        author.avatar_key = data.avatar_key
+    # Note: avatar_key not settable via PATCH - use upload endpoints
     if data.linked_user_id is not None:
         await validate_user_exists(data.linked_user_id)
         author.linked_user_id = data.linked_user_id

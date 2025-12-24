@@ -21,12 +21,14 @@ from .shared import (
 
 
 class AuthorCreate(BaseModel):
-    """Schema for creating a new author submission."""
+    """Schema for creating a new author submission.
+
+    Note: avatar_key is set via upload pipeline only, not directly.
+    """
 
     name: str = Field(..., min_length=1, max_length=100, description="Author full name")
     email: EmailStr | None = Field(None, description="Author contact email")
     bio: str | None = Field(None, description="Author biography")
-    avatar_key: str | None = Field(None, description="S3 key for author avatar image")
     linked_user_id: UUID | None = Field(
         None, description="Link to registered user account"
     )
@@ -42,12 +44,14 @@ class AuthorReplace(AuthorCreate):
 
 
 class AuthorUpdate(BaseModel):
-    """Schema for updating an existing author (versioned)."""
+    """Schema for updating an existing author (versioned).
+
+    Note: avatar_key cannot be set directly - use upload endpoints.
+    """
 
     name: str | None = Field(None, min_length=1, max_length=100)
     email: EmailStr | None = None
     bio: str | None = None
-    avatar_key: str | None = None
     linked_user_id: UUID | None = None
     book_ids: list[int] | None = None
     version: int = Field(..., description="Current version for optimistic locking")

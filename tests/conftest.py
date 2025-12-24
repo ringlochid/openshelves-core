@@ -88,6 +88,10 @@ class _FakePipeline:
         self.ops.append(("get", key))
         return self
 
+    def hgetall(self, key):
+        self.ops.append(("hgetall", key))
+        return self
+
     def delete(self, key):
         self.ops.append(("delete", key))
         return self
@@ -97,6 +101,8 @@ class _FakePipeline:
         for op, key in self.ops:
             if op == "get":
                 results.append(await self.redis.get(key))
+            elif op == "hgetall":
+                results.append(await self.redis.hgetall(key))
             elif op == "delete":
                 await self.redis.delete(key)
                 results.append(1)

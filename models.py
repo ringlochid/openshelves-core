@@ -43,14 +43,6 @@ class ContentStatus(str, PyEnum):
     REJECTED = "REJECTED"
 
 
-class UploadStatus(str, PyEnum):
-    """Upload lifecycle status."""
-
-    PENDING = "PENDING"
-    COMPLETED = "COMPLETED"
-    REVOKED = "REVOKED"
-
-
 class VoteType(str, PyEnum):
     """Review vote types."""
 
@@ -620,68 +612,6 @@ class CollectionBook(Base):
     )
 
 
-class PendingUpload(Base):
-    """
-    Track pending media uploads (covers, avatars, PDFs).
-    Updated with UUID user IDs and entity tracking.
-    """
-
-    __tablename__ = "pending_uploads"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    s3_key: Mapped[str] = mapped_column(String(500), nullable=False)
-
-    # Upload Context
-    upload_type: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # cover/avatar/file
-    entity_type: Mapped[str | None] = mapped_column(
-        String(50)
-    )  # author/book/collection
-    entity_id: Mapped[int | None] = mapped_column(Integer)
-
-    # Status
-    status: Mapped[UploadStatus] = mapped_column(
-        Enum(UploadStatus, name="upload_status", native_enum=True),
-        nullable=False,
-        server_default=text("'PENDING'"),
-    )
-
-    # Expiry
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("CURRENT_TIMESTAMP + INTERVAL '10 minutes'"),
-    )
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "upload_type IN ('cover', 'avatar', 'file')",
-            name="ck_pending_uploads_upload_type",
-        ),
-        CheckConstraint(
-            "entity_type IS NULL OR entity_type IN ('author', 'book', 'collection')",
-            name="ck_pending_uploads_entity_type",
-        ),
-        CheckConstraint(
-            "(entity_type IS NULL AND entity_id IS NULL) OR "
-            "(entity_type IS NOT NULL AND entity_id IS NOT NULL)",
-            name="ck_pending_uploads_entity_consistency",
-        ),
-        Index("ix_pending_uploads_user_status", "user_id", "status"),
-        Index("ix_pending_uploads_expires_at", "expires_at"),
-        Index("ix_pending_uploads_status_expires", "status", "expires_at"),
-    )
-
-
 # ========================================
 # Edit History
 # ========================================
@@ -723,6 +653,7 @@ class EditHistory(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
+        index=True,
     )
 
     __table_args__ = (

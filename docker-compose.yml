@@ -1,3 +1,4 @@
+
 services:
   app:
     build: .
@@ -29,5 +30,38 @@ services:
     build: ./infra/redis
     container_name: library-redis
 
+  worker:
+    build: .
+    container_name: library-worker
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: celery -A celery_app worker -Q media,email,default -l info
+
+  beat:
+    build: .
+    container_name: library-beat
+    env_file: .env
+    depends_on:
+      - redis
+      - db
+    command: celery -A celery_app beat -l info
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: library-clamav
+    environment:
+      - CLAMD_STARTUP_TIMEOUT=120000
+    # ports:
+    #   - "3310:3310"
+    volumes:
+      - clamav-db:/var/lib/clamav
+
 volumes:
   pgdata:
+  clamav-db:
+

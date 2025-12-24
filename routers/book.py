@@ -550,15 +550,12 @@ async def create_book(
                 detail="Some author IDs are invalid or not approved",
             )
 
-    # Create book
+    # Create book (cover_key/file_key/file_format set via upload pipeline)
     book = Book(
         title=data.title,
         year=data.year,
         description=data.description,
         tags=data.tags if data.tags else [],
-        cover_key=data.cover_key,
-        file_key=data.file_key,
-        file_format=data.file_format,
         created_by_user_id=current_user["user_id"],
         status=ContentStatus.APPROVED if has_direct_publish else ContentStatus.PENDING,
         is_public=has_direct_publish,
@@ -673,9 +670,7 @@ async def replace_book(
     book.year = data.year
     book.description = data.description
     book.tags = data.tags
-    book.cover_key = data.cover_key
-    book.file_key = data.file_key
-    book.file_format = data.file_format
+    # Note: cover_key/file_key/file_format not settable via PUT - use upload endpoints
     book.version = old_version + 1
 
     book.last_edited_by = user_id
@@ -813,12 +808,7 @@ async def update_book(
         book.description = data.description
     if data.tags is not None:
         book.tags = data.tags
-    if data.cover_key is not None:
-        book.cover_key = data.cover_key
-    if data.file_key is not None:
-        book.file_key = data.file_key
-    if data.file_format is not None:
-        book.file_format = data.file_format
+    # Note: cover_key/file_key/file_format not settable via PATCH - use upload endpoints
 
     # Update authors if provided
     if data.author_ids is not None:

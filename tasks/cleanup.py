@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celery_app import app
 from database import create_worker_session
-from models import Author, Book, Collection, PendingUpload, UploadStatus
+from models import Author, Book, Collection
 
 
 @app.task(name="tasks.cleanup.cleanup_soft_deleted_content")
@@ -74,50 +74,6 @@ def cleanup_soft_deleted_content() -> dict:
                         "collections": collections_deleted,
                     },
                     "total": authors_deleted + books_deleted + collections_deleted,
-                }
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(_cleanup())
-
-
-@app.task(name="tasks.cleanup.cleanup_expired_uploads")
-def cleanup_expired_uploads() -> dict:
-    """
-    Delete expired pending uploads.
-
-    This task runs hourly (configured in celery_app.py beat_schedule).
-    Removes PendingUpload records that have expired (default 10 minutes).
-
-    Note: This doesn't delete the actual S3 objects - that's handled by S3 lifecycle policies.
-
-    Returns:
-        Dict with count of deleted records
-    """
-
-    async def _cleanup():
-        WorkerSession, engine = create_worker_session()
-
-        try:
-            async with WorkerSession() as db:
-                now = datetime.now(timezone.utc)
-
-                # Delete expired uploads
-                query = delete(PendingUpload).where(
-                    and_(
-                        PendingUpload.status == UploadStatus.PENDING,
-                        PendingUpload.expires_at <= now,
-                    )
-                )
-                result = await db.execute(query)
-                deleted_count = result.rowcount
-
-                await db.commit()
-
-                return {
-                    "status": "completed",
-                    "deleted": deleted_count,
-                    "timestamp": now.isoformat(),
                 }
         finally:
             await engine.dispose()

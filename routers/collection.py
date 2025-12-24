@@ -446,7 +446,7 @@ async def create_collection(
     collection = Collection(
         name=data.name,
         description=data.description,
-        cover_key=data.cover_key,
+        # Note: cover_key set via upload pipeline, not create endpoint
         created_by_user_id=UUID(current_user["user_id"]),
         status=initial_status,
         is_public=initial_public,
@@ -544,8 +544,7 @@ async def update_collection(
         collection.name = data.name
     if data.description is not None:
         collection.description = data.description
-    if data.cover_key is not None:
-        collection.cover_key = data.cover_key
+    # Note: cover_key not settable via PATCH - use upload endpoints
 
     # Replace books if provided
     if data.book_ids is not None:

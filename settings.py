@@ -118,6 +118,36 @@ class Settings(BaseSettings):
     RATE_LIMIT_ANON_REFILL_TOKENS: int = 20
     RATE_LIMIT_ANON_PERIOD_SECONDS: int = 180
 
+    # Upload rate limiting
+    RATE_LIMIT_UPLOAD_CAPACITY: int = 10
+    RATE_LIMIT_UPLOAD_REFILL_TOKENS: int = 10
+    RATE_LIMIT_UPLOAD_REFILL_PERIOD_SECONDS: int = 3600  # 10/hour
+
+    RATE_LIMIT_COMMIT_CAPACITY: int = 10
+    RATE_LIMIT_COMMIT_REFILL_TOKENS: int = 10
+    RATE_LIMIT_COMMIT_REFILL_PERIOD_SECONDS: int = 3600
+
+    # Media Processing Configuration
+    # Cover sizes (book & collection) - 2:3 portrait ratio
+    COVER_SIZES: list[tuple[int, int]] = [(1800, 2700), (1200, 1800), (600, 900)]
+    # Avatar sizes (author) - 1:1 square ratio
+    AVATAR_SIZES: list[int] = [512, 256, 128]
+
+    # Image processing
+    COVER_OUTPUT_FORMAT: str = "WEBP"
+    COVER_JPEG_QUALITY: int = 85
+    COVER_UPSCALE_MAX: float = 2.0  # Max upscale factor
+    COVER_MAX_PIXELS: int = 100_000_000  # Image bomb protection
+
+    # Upload limits
+    COVER_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB
+    BOOK_FILE_MAX_BYTES: int = 100 * 1024 * 1024  # 100MB
+    UPLOAD_EXPIRES_SECONDS: int = 600  # 10 min presigned URL expiry
+
+    # Allowed MIME types
+    COVER_ALLOWED_MIME_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
+    BOOK_ALLOWED_FORMATS: list[str] = ["pdf", "epub"]
+
     # Development Settings
     LOG_LEVEL: str = "INFO"
 
