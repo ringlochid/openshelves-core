@@ -145,7 +145,7 @@ async def presign_book_cover(
         user_id=user_id,
         upload_id=upload_id,
         s3_key=s3_key,
-        upload_type="cover",
+        upload_type="book_cover",
         entity_type="book",
         entity_id=book_id,
         entity_version=entity_version,
@@ -198,6 +198,15 @@ async def commit_book_cover(
         raise HTTPException(status_code=400, detail="S3 key mismatch")
     if claim.get("entity_id") != str(book_id):
         raise HTTPException(status_code=400, detail="Entity ID mismatch")
+    # Prevent cross-entity claim reuse
+    if claim.get("entity_type") != "book":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: entity type mismatch"
+        )
+    if claim.get("upload_type") != "book_cover":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: upload type mismatch"
+        )
 
     # Version check - verify entity hasn't changed since presign
     query = select(Book).where(Book.id == book_id)
@@ -316,7 +325,7 @@ async def presign_book_file(
         user_id=user_id,
         upload_id=upload_id,
         s3_key=s3_key,
-        upload_type="file",
+        upload_type="book_file",
         entity_type="book",
         entity_id=book_id,
         entity_version=entity_version,
@@ -367,6 +376,15 @@ async def commit_book_file(
         raise HTTPException(status_code=400, detail="S3 key mismatch")
     if claim.get("entity_id") != str(book_id):
         raise HTTPException(status_code=400, detail="Entity ID mismatch")
+    # Prevent cross-entity claim reuse
+    if claim.get("entity_type") != "book":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: entity type mismatch"
+        )
+    if claim.get("upload_type") != "book_file":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: upload type mismatch"
+        )
 
     query = select(Book).where(Book.id == book_id)
     result = await db.execute(query)
@@ -485,7 +503,7 @@ async def presign_author_avatar(
         user_id=user_id,
         upload_id=upload_id,
         s3_key=s3_key,
-        upload_type="avatar",
+        upload_type="author_avatar",
         entity_type="author",
         entity_id=author_id,
         entity_version=entity_version,
@@ -536,6 +554,15 @@ async def commit_author_avatar(
         raise HTTPException(status_code=400, detail="S3 key mismatch")
     if claim.get("entity_id") != str(author_id):
         raise HTTPException(status_code=400, detail="Entity ID mismatch")
+    # Prevent cross-entity claim reuse
+    if claim.get("entity_type") != "author":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: entity type mismatch"
+        )
+    if claim.get("upload_type") != "author_avatar":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: upload type mismatch"
+        )
 
     query = select(Author).where(Author.id == author_id)
     result = await db.execute(query)
@@ -658,7 +685,7 @@ async def presign_collection_cover(
         user_id=user_id,
         upload_id=upload_id,
         s3_key=s3_key,
-        upload_type="cover",
+        upload_type="collection_cover",
         entity_type="collection",
         entity_id=collection_id,
         entity_version=entity_version,
@@ -711,6 +738,15 @@ async def commit_collection_cover(
         raise HTTPException(status_code=400, detail="S3 key mismatch")
     if claim.get("entity_id") != str(collection_id):
         raise HTTPException(status_code=400, detail="Entity ID mismatch")
+    # Prevent cross-entity claim reuse
+    if claim.get("entity_type") != "collection":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: entity type mismatch"
+        )
+    if claim.get("upload_type") != "collection_cover":
+        raise HTTPException(
+            status_code=400, detail="Invalid claim: upload type mismatch"
+        )
 
     query = select(Collection).where(Collection.id == collection_id)
     result = await db.execute(query)

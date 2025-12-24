@@ -75,6 +75,13 @@ class CollectionUpdate(BaseModel):
     version: int = Field(..., description="Current version for optimistic locking")
 
 
+class CollectionRollbackRequest(BaseModel):
+    """Schema for rolling back to a previous version."""
+
+    target_version: int = Field(..., ge=1, description="Version number to rollback to")
+    version: int = Field(..., description="Current version for optimistic locking")
+
+
 # ========================================
 # Collection-Book Management
 # ========================================

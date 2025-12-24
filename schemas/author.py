@@ -12,6 +12,7 @@ from .shared import (
     VersioningMixin,
     WorkflowMixin,
     BookBrief,
+    AvatarKeyMixin,
 )
 
 
@@ -69,14 +70,19 @@ class AuthorRollbackRequest(BaseModel):
 # ========================================
 
 
-class AuthorDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
+class AuthorDetail(
+    BaseSchema,
+    TimestampMixin,
+    VersioningMixin,
+    WorkflowMixin,
+    AvatarKeyMixin,
+):
     """Complete author information including workflow metadata."""
 
     id: int
     name: str
     email: str | None
     bio: str | None
-    avatar_key: str | None
     created_by_user_id: UUID
     linked_user_id: UUID | None
     follower_count: int

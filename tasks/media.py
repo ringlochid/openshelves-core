@@ -8,6 +8,7 @@ import io
 import math
 import tempfile
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -43,6 +44,24 @@ class MediaProcessingError(Exception):
 # ========================================
 # HELPER FUNCTIONS
 # ========================================
+
+# MIME type to file extension mapping (use "jpeg" not "jpg" for consistency)
+MIME_TO_EXT: dict[str, set[str]] = {
+    "image/jpeg": {"jpg", "jpeg"},
+    "image/png": {"png"},
+    "image/webp": {"webp"},
+    "image/avif": {"avif"},
+}
+
+
+def _allowed_extensions() -> set[str]:
+    """
+    Derive allowed filename extensions from allowed MIME types.
+    """
+    allowed_exts: set[str] = set()
+    for mime in settings.COVER_ALLOWED_MIME_TYPES:
+        allowed_exts.update(MIME_TO_EXT.get(mime, set()))
+    return allowed_exts
 
 
 def _clamd_client():
@@ -81,8 +100,6 @@ def _validate_pdf(file_path: str) -> bool:
 
 def _validate_epub(file_path: str) -> bool:
     """Validate EPUB file by checking ZIP structure."""
-    import zipfile
-
     try:
         with zipfile.ZipFile(file_path, "r") as zf:
             if "META-INF/container.xml" not in zf.namelist():

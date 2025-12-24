@@ -40,7 +40,7 @@ services:
       - .env
     volumes:
       - .:/app
-    command: celery -A celery_app worker -Q media,email,default -l info
+    command: celery -A celery_app worker -Q media,analytics,cleanup,default -l info
 
   beat:
     build: .

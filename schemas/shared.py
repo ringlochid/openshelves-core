@@ -3,12 +3,13 @@ Shared Pydantic schemas and mixins for Library Service.
 Base classes and common field groups for reuse across entities.
 """
 
+from pydantic.fields import computed_field
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from models import ContentStatus
-
+from settings import settings
 
 # ========================================
 # Shared Enums
@@ -64,33 +65,111 @@ class VersioningMixin(BaseModel):
 
 
 # ========================================
-# Legacy Base Classes (backward compatibility)
+# Media key shcemas
 # ========================================
+class CoverKeyMixin(BaseModel):
+    """Mixin providing cover_key → cover_urls computed field."""
+
+    cover_key: str | None = None
+
+    @computed_field
+    @property
+    def cover_urls(self) -> dict[str, str] | None:
+        """Generate S3 URLs for all cover size variants."""
+        if not self.cover_key:
+            return None
+        if not settings.S3_BUCKET_NAME or not settings.AWS_REGION:
+            return None
+
+        # Support custom S3 endpoints (MinIO, LocalStack, CDN)
+        if settings.S3_ENDPOINT_URL:
+            base_url = (
+                f"{settings.S3_ENDPOINT_URL.rstrip('/')}/{settings.S3_BUCKET_NAME}"
+            )
+        else:
+            base_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com"
+        parts = self.cover_key.rsplit("/", 1)
+        if len(parts) != 2:
+            return None
+
+        base_path, filename = parts
+        if "." not in filename:
+            return None
+        ext = filename.rsplit(".", 1)[1]
+
+        # Cover sizes are (width, height) tuples
+        return {
+            f"{w}x{h}": f"{base_url}/{base_path}/{w}x{h}.{ext}"
+            for w, h in settings.COVER_SIZES
+        }
 
 
-class AuthorBase(BaseSchema):
-    """Legacy author base - use AuthorRead instead."""
+class AvatarKeyMixin(BaseModel):
+    """Mixin providing avatar_key → avatar_urls computed field."""
 
-    id: int
-    name: str
-    email: str | None = None
+    avatar_key: str | None = None
+
+    @computed_field
+    @property
+    def avatar_urls(self) -> dict[str, str] | None:
+        """Generate S3 URLs for all avatar size variants."""
+        if not self.avatar_key:
+            return None
+        if not settings.S3_BUCKET_NAME or not settings.AWS_REGION:
+            return None
+
+        # Support custom S3 endpoints (MinIO, LocalStack, CDN)
+        if settings.S3_ENDPOINT_URL:
+            base_url = (
+                f"{settings.S3_ENDPOINT_URL.rstrip('/')}/{settings.S3_BUCKET_NAME}"
+            )
+        else:
+            base_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com"
+        parts = self.avatar_key.rsplit("/", 1)
+        if len(parts) != 2:
+            return None
+
+        base_path, filename = parts
+        if "." not in filename:
+            return None
+        ext = filename.rsplit(".", 1)[1]
+
+        # Avatar sizes are single integers (width)
+        return {
+            str(w): f"{base_url}/{base_path}/{w}.{ext}" for w in settings.AVATAR_SIZES
+        }
 
 
-class ReviewBase(BaseSchema):
-    """Legacy review base - use ReviewRead instead."""
+class FileKeyMixin(BaseModel):
+    """Mixin providing Filekey -> filekey url"""
 
-    id: int
-    rating: int
-    user_id: UUID  # Changed from reviewer_name
-    comment: str | None = None
+    file_key: str | None = None
 
+    @computed_field
+    @property
+    def file_url(self) -> str | None:
+        """Generate S3 URL for file."""
+        if not self.file_key:
+            return None
+        if not settings.S3_BUCKET_NAME or not settings.AWS_REGION:
+            return None
 
-class BookBase(BaseSchema):
-    """Legacy book base - use BookRead instead."""
+        # Support custom S3 endpoints (MinIO, LocalStack, CDN)
+        if settings.S3_ENDPOINT_URL:
+            base_url = (
+                f"{settings.S3_ENDPOINT_URL.rstrip('/')}/{settings.S3_BUCKET_NAME}"
+            )
+        else:
+            base_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com"
+        parts = self.file_key.rsplit("/", 1)
+        if len(parts) != 2:
+            return None
 
-    id: int
-    title: str
-    year: int | None
+        base_path, filename = parts
+        if "." not in filename:
+            return None
+
+        return f"{base_url}/{base_path}/{filename}"
 
 
 # ========================================
@@ -118,7 +197,7 @@ class AuthorBrief(BaseSchema):
     name: str
 
 
-class BookRead(BaseSchema, TimestampMixin):
+class BookRead(BaseSchema, TimestampMixin, CoverKeyMixin):
     """Basic book information for list views."""
 
     id: int
@@ -126,7 +205,6 @@ class BookRead(BaseSchema, TimestampMixin):
     year: int | None
     description: str | None
     tags: list[str] | None = None
-    cover_key: str | None
     status: str  # ContentStatus enum value
     is_public: bool
     subscriber_count: int
@@ -136,12 +214,11 @@ class BookRead(BaseSchema, TimestampMixin):
     trending_score: float = 0.0
 
 
-class BookBrief(BaseSchema):
+class BookBrief(BaseSchema, CoverKeyMixin):
     """Minimal book info for author list cards."""
 
     id: int
     title: str
-    cover_key: str | None
     subscriber_count: int
     status: str  # ContentStatus enum value
     is_public: bool

@@ -280,7 +280,7 @@ async def test_commit_book_cover_version_conflict(
         user_id=owner_user_id,
         upload_id=upload_id,
         s3_key=s3_key,
-        upload_type="cover",
+        upload_type="book_cover",
         entity_type="book",
         entity_id=book.id,
         entity_version=1,  # Version 1

@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     # S3 Media Configuration
     AWS_ACCESS_KEY_ID: str | None = None
     AWS_SECRET_ACCESS_KEY: str | None = None
-    AWS_REGION: str = "us-east-1"
-    S3_BUCKET_NAME: str = "library-app-media"
-    S3_ENDPOINT_URL: str | None = None  # For local testing
+    AWS_REGION: str = "ap-southeast-2"
+    S3_BUCKET_NAME: str = "library-media-demo"
+    S3_ENDPOINT_URL: str | None = None
 
     # Upload settings
     PRESIGNED_URL_EXPIRY: int = 600  # 10 minutes
@@ -145,7 +145,12 @@ class Settings(BaseSettings):
     UPLOAD_EXPIRES_SECONDS: int = 600  # 10 min presigned URL expiry
 
     # Allowed MIME types
-    COVER_ALLOWED_MIME_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
+    COVER_ALLOWED_MIME_TYPES: list[str] = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/avif",
+    ]
     BOOK_ALLOWED_FORMATS: list[str] = ["pdf", "epub"]
 
     # Development Settings

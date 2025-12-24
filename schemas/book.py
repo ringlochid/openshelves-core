@@ -15,6 +15,8 @@ from .shared import (
     AuthorBrief,
     BookBrief,
     SortDirection,
+    CoverKeyMixin,
+    FileKeyMixin,
 )
 
 # ========================================
@@ -110,7 +112,14 @@ class BookListItem(BookBrief):
     trending_score: float = 0.0
 
 
-class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
+class BookDetail(
+    BaseSchema,
+    TimestampMixin,
+    VersioningMixin,
+    WorkflowMixin,
+    CoverKeyMixin,
+    FileKeyMixin,
+):
     """Complete book information including workflow metadata."""
 
     id: int
@@ -118,8 +127,6 @@ class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
     year: int | None
     description: str | None
     tags: list[str] | None = Field(default=None)
-    cover_key: str | None
-    file_key: str | None
     file_format: str | None
     created_by_user_id: UUID
     subscriber_count: int

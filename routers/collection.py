@@ -38,6 +38,7 @@ from models import (
     CollectionBook,
     CollectionSubscription,
     ContentStatus,
+    EditHistory,
 )
 from schemas.collection import (
     CollectionSortField,
@@ -49,6 +50,7 @@ from schemas.collection import (
     CollectionDetail,
     CollectionListItem,
     CollectionRead,
+    CollectionRollbackRequest,
     CollectionUpdate,
     CollectionListResponse,
     PaginatedCollectionsCursor,
@@ -577,6 +579,154 @@ async def update_collection(
 
     # Invalidate caches
     await cache.invalidate_collection(collection.id, r)
+
+    return CollectionRead.model_validate(collection)
+
+
+@router.post("/{collection_id}/rollback", response_model=CollectionRead)
+async def rollback_collection_version(
+    collection_id: int,
+    data: CollectionRollbackRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+    r: Redis = Depends(cache.get_redis),
+):
+    """
+    Rollback collection to a previous version from edit history.
+
+    Permission required:
+    - Owner with 'collections:update_own' scope, OR
+    - User with 'collections:edit_public_meta' scope (wiki editor)
+
+    Creates a new version with the old data (does not revert version number).
+    """
+    rl_key = cache.make_rate_limit_key(
+        "collections:rollback", current_user.get("user_id") or "unknown"
+    )
+    allowed, _ = await cache.token_bucket_allow(
+        key=rl_key,
+        capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
+        refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        r=r,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    # Fetch collection with books
+    query = (
+        select(Collection)
+        .where(Collection.id == collection_id)
+        .options(selectinload(Collection.books))
+    )
+    result = await db.execute(query)
+    collection = result.scalar_one_or_none()
+
+    if not collection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
+        )
+
+    # Check version conflict
+    if collection.version != data.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Version conflict. Current version is {collection.version}, you have {data.version}",
+        )
+
+    # Permission check
+    is_owner = str(collection.created_by_user_id) == str(current_user["user_id"])
+    has_update_own = "collections:update_own" in current_user.get("scopes", [])
+    has_edit_public_meta = "collections:edit_public_meta" in current_user.get(
+        "scopes", []
+    )
+
+    if is_owner and has_update_own:
+        pass
+    elif has_edit_public_meta and collection.status == ContentStatus.APPROVED:
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to rollback this collection",
+        )
+
+    # Fetch target version from edit history
+    history_query = (
+        select(EditHistory)
+        .where(
+            and_(
+                EditHistory.entity_type == "collection",
+                EditHistory.entity_id == collection_id,
+                EditHistory.version == data.target_version,
+            )
+        )
+        .order_by(EditHistory.created_at.desc())
+        .limit(1)
+    )
+
+    result = await db.execute(history_query)
+    target_record = result.scalar_one_or_none()
+
+    if not target_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Version {data.target_version} not found in edit history",
+        )
+
+    # Capture old state BEFORE rollback for audit
+    old_data_for_audit = serialize_entity(collection)
+    old_version = collection.version
+
+    # Apply old data to current entity
+    old_data = target_record.new_data
+    if old_data:
+        # Update fields from old version
+        if "name" in old_data:
+            collection.name = old_data["name"]
+        if "description" in old_data:
+            collection.description = old_data["description"]
+        if "cover_key" in old_data:
+            collection.cover_key = old_data["cover_key"]
+
+        # Restore book associations if present using helper function
+        if "book_ids" in old_data:
+            book_ids = old_data["book_ids"]
+            # Clear existing and restore historical book associations
+            # Note: This will only restore books that are still APPROVED and public
+            await link_books_to_collection(
+                db,
+                collection,
+                book_ids,
+                clear_existing=True,
+            )
+
+    # Increment version (rollback creates new version)
+    collection.version += 1
+    collection.last_edited_by = current_user["user_id"]
+    collection.last_edited_at = datetime.now(timezone.utc)
+
+    # Record rollback in history with correct pre/post snapshots
+    await record_update(
+        db=db,
+        entity_type="collection",
+        entity_id=collection.id,
+        user_id=current_user["user_id"],
+        old_data=old_data_for_audit,
+        new_data=serialize_entity(collection),
+        new_version=collection.version,
+        old_version=old_version,
+    )
+
+    await db.commit()
+
+    # Invalidate cache
+    await cache.invalidate_collection(collection_id, r)
+
+    await db.refresh(collection)
 
     return CollectionRead.model_validate(collection)
 

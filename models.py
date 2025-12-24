@@ -207,7 +207,7 @@ class Book(Base):
     # Media
     cover_key: Mapped[str | None] = mapped_column(String(255))
     file_key: Mapped[str | None] = mapped_column(String(255))
-    file_format: Mapped[str | None] = mapped_column(String(20))  # pdf/epub/mobi
+    file_format: Mapped[str | None] = mapped_column(String(20))  # pdf/epub
 
     # Ownership
     created_by_user_id: Mapped[UUID] = mapped_column(
@@ -304,7 +304,7 @@ class Book(Base):
     __table_args__ = (
         CheckConstraint("year IS NULL OR year > 0", name="ck_books_year_positive"),
         CheckConstraint(
-            "file_format IS NULL OR file_format IN ('pdf', 'epub', 'mobi')",
+            "file_format IS NULL OR file_format IN ('pdf', 'epub')",
             name="ck_books_file_format",
         ),
         CheckConstraint(
