@@ -269,10 +269,8 @@ async def get_vote_status(
     votes_needed = max(0, VOTE_THRESHOLD - vote_score)
 
     return {
-        "vote_score": vote_score,
         "threshold": VOTE_THRESHOLD,
         "votes_needed": votes_needed,
-        "voter_count": voter_count,
         "total_votes": voter_count,  # Alias for router compatibility
         "has_voted": voter_count > 0,  # True if any votes exist
         "vote_weight": vote_score,  # Alias for router compatibility

@@ -50,6 +50,7 @@ async def link_books_to_collection(
     collection: Collection,
     book_ids: list[int],
     clear_existing: bool = False,
+    error_when_book_not_found: bool = False,
 ) -> int:
     """
     Link books to collection with positions.
@@ -77,10 +78,14 @@ async def link_books_to_collection(
             )
         )
         if not book:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="At least one book not found",
-            )
+            if error_when_book_not_found:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="At least one book not found",
+                )
+            else:
+                print(f"Book not found: {book_id}")  # TODO: add logging in future
+            continue
 
         # Check if already in collection
         existing = await db.scalar(

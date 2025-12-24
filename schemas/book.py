@@ -136,6 +136,20 @@ class BookDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
 
 
 # ========================================
+# Review Vote Response
+# ========================================
+
+
+class ReviewVoteResponse(BaseModel):
+    """Response for voting on a review."""
+
+    message: str
+    helpful_count: int
+    unhelpful_count: int
+    trust_delta: int
+
+
+# ========================================
 # Subscription Schemas
 # ========================================
 

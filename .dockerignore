@@ -67,3 +67,5 @@ scripts/seed*.py
 Dockerfile*
 docker-compose*.yml
 .dockerignore
+
+venv/

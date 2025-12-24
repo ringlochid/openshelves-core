@@ -44,21 +44,14 @@ class JuryVoterInfo(BaseSchema):
 
 
 class JuryVoteStatus(BaseSchema):
-    """Vote status for a pending entity."""
+    """Vote status response in /vote endpoint."""
 
-    entity_type: str = Field(
-        ..., description="Type of entity (author, book, collection)"
+    has_voted: bool = Field(..., description="Whether user has voted")
+    vote_weight: int = Field(..., description="Vote weight applied (1 or 5)")
+    total_votes: int = Field(..., description="Total votes cast")
+    voters: list[str] = Field(..., description="List of voters")
+    vote_breakdown: dict[str, int] = Field(
+        default_factory=dict, description="Breakdown of votes by user"
     )
-    entity_id: int
-    vote_score: int = Field(..., description="Current total vote score")
-    threshold: int = Field(default=5, description="Score needed for auto-approval")
-    votes_needed: int = Field(
-        ..., description="Remaining points needed to reach threshold"
-    )
-    voter_count: int = Field(..., description="Number of users who voted")
-    voters: list[JuryVoterInfo] = Field(
-        default_factory=list, description="List of voters"
-    )
-    user_has_voted: bool = Field(
-        default=False, description="Whether current user has voted"
-    )
+    votes_needed: int = Field(..., description="Votes needed to reach threshold")
+    threshold: int = Field(..., description="Threshold for auto-approval")

@@ -330,7 +330,7 @@ async def retract_vote_on_author(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.get("/authors/{author_id}/votes")
+@router.get("/authors/{author_id}/votes", response_model=JuryVoteStatus)
 async def get_author_vote_status(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -618,7 +618,7 @@ async def retract_vote_on_book(
     await db.commit()
 
 
-@router.get("/books/{book_id}/votes")
+@router.get("/books/{book_id}/votes", response_model=JuryVoteStatus)
 async def get_book_vote_status(
     book_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -648,12 +648,7 @@ async def get_book_vote_status(
         entity_id=book_id,
     )
 
-    return {
-        "has_voted": vote_status["has_voted"],
-        "vote_weight": vote_status["vote_weight"],
-        "total_votes": vote_status["total_votes"],
-        "threshold": vote_status["threshold"],
-    }
+    return vote_status
 
 
 # ========================================
@@ -898,7 +893,7 @@ async def retract_vote_on_collection(
     await db.commit()
 
 
-@router.get("/collections/{collection_id}/votes")
+@router.get("/collections/{collection_id}/votes", response_model=JuryVoteStatus)
 async def get_collection_vote_status(
     collection_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -928,9 +923,4 @@ async def get_collection_vote_status(
         entity_id=collection_id,
     )
 
-    return {
-        "has_voted": vote_status["has_voted"],
-        "vote_weight": vote_status["vote_weight"],
-        "total_votes": vote_status["total_votes"],
-        "threshold": vote_status["threshold"],
-    }
+    return vote_status

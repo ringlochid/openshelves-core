@@ -481,12 +481,12 @@ async def test_vote_status_display(async_client: AsyncClient, test_db: AsyncSess
     assert response.status_code == 200
     data = response.json()
     # Verify response has expected structure
-    assert "vote_score" in data
+    assert "vote_weight" in data
     assert data["threshold"] == 5
     assert "votes_needed" in data
-    assert "voter_count" in data
+    assert "total_votes" in data
     assert "voters" in data
-    assert data["voter_count"] >= 1  # At least our test vote
+    assert data["total_votes"] >= 1  # At least our test vote
     assert len(data["voters"]) >= 1  # Voters list populated
 
 

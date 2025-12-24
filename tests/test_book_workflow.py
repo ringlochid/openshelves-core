@@ -297,7 +297,7 @@ class TestBookSubscription:
                     r=AsyncMock(),
                 )
 
-        assert "subscribed" in result["message"].lower()
+        # Subscribe returns None (201 no body)
         await test_db.refresh(approved_book)
         assert approved_book.subscriber_count == original_count + 1
 

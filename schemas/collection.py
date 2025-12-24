@@ -153,6 +153,34 @@ class CollectionDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixi
 
 
 # ========================================
+# Action Response Schemas
+# ========================================
+
+
+class CollectionBookAddResponse(BaseModel):
+    """Response for adding a book to collection."""
+
+    message: str
+    position: int
+    book_count: int
+
+
+class CollectionBookReorderResponse(BaseModel):
+    """Response for reordering a book within collection."""
+
+    message: str
+    old_position: int
+    new_position: int
+
+
+class SubscriptionResponse(BaseModel):
+    """Response for subscription action."""
+
+    message: str
+    subscriber_count: int
+
+
+# ========================================
 # Subscription Schemas
 # ========================================
 

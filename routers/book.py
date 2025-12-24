@@ -39,6 +39,7 @@ from schemas.book import (
     SortField,
     SortDirection,
     RollbackRequest,
+    ReviewVoteResponse,
 )
 from schemas.review import ReviewCreate, ReviewUpdate, ReviewVoteCreate
 from schemas.shared import ReviewRead
@@ -1514,8 +1515,6 @@ async def subscribe_to_book(
 
     # NOTE: NO trust reward - prevents subscribe/unsubscribe exploit loop
 
-    return {"message": "Successfully subscribed to book"}
-
 
 @router.delete("/{book_id}/subscribe", status_code=status.HTTP_204_NO_CONTENT)
 async def unsubscribe_from_book(
@@ -1793,7 +1792,7 @@ async def delete_review(
     await cache.invalidate_book(review.book_id, r)
 
 
-@router.post("/reviews/{review_id}/vote", response_model=dict)
+@router.post("/reviews/{review_id}/vote", response_model=ReviewVoteResponse)
 async def vote_on_review(
     review_id: int,
     data: ReviewVoteCreate,
@@ -1858,12 +1857,12 @@ async def vote_on_review(
     if existing:
         # Vote change logic
         if existing.vote == data.vote:
-            return {
-                "message": "Already voted",
-                "helpful_count": review.helpful_count,
-                "unhelpful_count": review.unhelpful_count,
-                "trust_delta": 0,
-            }
+            return ReviewVoteResponse(
+                message="Already voted",
+                helpful_count=review.helpful_count,
+                unhelpful_count=review.unhelpful_count,
+                trust_delta=0,
+            )
 
         # Change vote: reverse previous and apply new
         if existing.vote == VoteType.HELPFUL:
@@ -1914,12 +1913,12 @@ async def vote_on_review(
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
 
-    return {
-        "message": "Vote recorded",
-        "helpful_count": review.helpful_count,
-        "unhelpful_count": review.unhelpful_count,
-        "trust_delta": delta,
-    }
+    return ReviewVoteResponse(
+        message="Vote recorded",
+        helpful_count=review.helpful_count,
+        unhelpful_count=review.unhelpful_count,
+        trust_delta=delta,
+    )
 
 
 @router.delete("/reviews/{review_id}/vote", status_code=status.HTTP_204_NO_CONTENT)

@@ -64,6 +64,9 @@ alembic.ini.local
 *.sqlite
 *.db
 __pycache__/models.cpython-310.pyc
-__pycache__/
 __pycache__/database.cpython-310.pyc
 __pycache__/models.cpython-310.pyc
+
+__pycache__/
+
+venv/

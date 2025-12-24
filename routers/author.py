@@ -1304,8 +1304,6 @@ async def follow_author(
     # NOTE: Social trust rewards removed to prevent follow/unfollow exploit loop.
     # Trust is only awarded for content approval and helpful reviews.
 
-    return {"message": "Successfully followed author"}
-
 
 @router.delete("/{author_id}/follow", status_code=status.HTTP_204_NO_CONTENT)
 async def unfollow_author(

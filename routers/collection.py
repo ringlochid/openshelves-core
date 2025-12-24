@@ -52,6 +52,9 @@ from schemas.collection import (
     CollectionUpdate,
     CollectionListResponse,
     PaginatedCollectionsCursor,
+    CollectionBookAddResponse,
+    CollectionBookReorderResponse,
+    SubscriptionResponse,
 )
 from schemas.shared import SortDirection
 from services.auth_client import adjust_trust_for_approval, adjust_trust_for_rejection
@@ -454,7 +457,9 @@ async def create_collection(
 
     # Link books if provided
     if data.book_ids:
-        await link_books_to_collection(db, collection, data.book_ids)
+        await link_books_to_collection(
+            db, collection, data.book_ids, error_when_book_not_found=True
+        )
 
     # Record creation in history
     await record_create(
@@ -545,7 +550,11 @@ async def update_collection(
     # Replace books if provided
     if data.book_ids is not None:
         await link_books_to_collection(
-            db, collection, data.book_ids, clear_existing=True
+            db,
+            collection,
+            data.book_ids,
+            clear_existing=True,
+            error_when_book_not_found=False,  # waring when book not found
         )
 
     collection.version += 1
@@ -649,7 +658,7 @@ async def delete_collection(
 # ========================================
 
 
-@router.post("/{collection_id}/books", response_model=dict)
+@router.post("/{collection_id}/books", response_model=CollectionBookAddResponse)
 async def add_book_to_collection(
     collection_id: int,
     data: CollectionBookAdd,
@@ -765,14 +774,16 @@ async def add_book_to_collection(
     # Invalidate cache
     await cache.invalidate_collection(collection_id, r)
 
-    return {
-        "message": "Book added",
-        "position": position,
-        "book_count": collection.book_count,
-    }
+    return CollectionBookAddResponse(
+        message="Book added",
+        position=position,
+        book_count=collection.book_count,
+    )
 
 
-@router.patch("/{collection_id}/books/{book_id}", response_model=dict)
+@router.patch(
+    "/{collection_id}/books/{book_id}", response_model=CollectionBookReorderResponse
+)
 async def reorder_book_in_collection(
     collection_id: int,
     book_id: int,
@@ -861,11 +872,11 @@ async def reorder_book_in_collection(
     # Invalidate cache
     await cache.invalidate_collection(collection_id, r)
 
-    return {
-        "message": "Book reordered",
-        "old_position": old_position,
-        "new_position": new_position,
-    }
+    return CollectionBookReorderResponse(
+        message="Book reordered",
+        old_position=old_position,
+        new_position=new_position,
+    )
 
 
 @router.delete(
@@ -1248,7 +1259,7 @@ async def recover_collection(
 # ========================================
 
 
-@router.post("/{collection_id}/subscribe", response_model=dict)
+@router.post("/{collection_id}/subscribe", response_model=SubscriptionResponse)
 async def subscribe_to_collection(
     collection_id: int,
     current_user: dict = Depends(get_current_user),
@@ -1306,10 +1317,10 @@ async def subscribe_to_collection(
     # Invalidate cache
     await cache.invalidate_collection(collection_id, r)
 
-    return {
-        "message": "Subscribed",
-        "subscriber_count": collection.subscriber_count,
-    }
+    return SubscriptionResponse(
+        message="Subscribed",
+        subscriber_count=collection.subscriber_count,
+    )
 
 
 @router.delete("/{collection_id}/subscribe", status_code=status.HTTP_204_NO_CONTENT)
