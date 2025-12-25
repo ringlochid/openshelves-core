@@ -567,6 +567,7 @@ async def create_book(
     await db.flush()  # Get book.id before history recording
 
     # Record creation in edit history
+    await db.refresh(book, ["authors"])  # Load relationship for serialization
     await record_create(
         db=db,
         entity_type="book",
@@ -663,6 +664,7 @@ async def replace_book(
     check_version_conflict(book.version, data.version, "book", book_id)
 
     old_version = book.version
+    await db.refresh(book, ["authors"])  # Load relationship for serialization
     old_data = serialize_entity(book)
 
     # replace book
@@ -701,6 +703,7 @@ async def replace_book(
     affected_author_ids.extend([author.id for author in author_objs])
 
     # Record update in history
+    await db.refresh(book, ["authors"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="book",
@@ -796,6 +799,7 @@ async def update_book(
     check_version_conflict(book.version, data.version, "book", book_id)
 
     # Capture OLD state and author IDs for cache invalidation
+    await db.refresh(book, ["authors"])  # Load relationship for serialization
     old_data = serialize_entity(book)
     previous_author_ids = {author.id for author in book.authors}
 
@@ -837,6 +841,7 @@ async def update_book(
     book.last_edited_at = datetime.now(timezone.utc)
 
     # Record update in history
+    await db.refresh(book, ["authors"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="book",
@@ -1096,6 +1101,12 @@ async def rollback_book_version(
 
     # Restore data from history
     restored_data = history_record.new_data
+    restored_changes = history_record.changes
+    if not restored_changes or restored_changes.get("total_changes") == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Version {data.target_version} has no changes to restore",
+        )
     if not restored_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1211,6 +1222,7 @@ async def recover_deleted_book(
             )
 
     # Save old state
+    await db.refresh(book, ["authors"])  # Load relationship for serialization
     old_data = serialize_entity(book)
     old_version = book.version
 
@@ -1223,6 +1235,7 @@ async def recover_deleted_book(
     book.version += 1
 
     # Record recovery in history
+    await db.refresh(book, ["authors"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="book",
@@ -1291,6 +1304,9 @@ async def approve_book(
         )
 
     # Save old state
+    await db.refresh(
+        book, ["authors"]
+    )  # Load relationship for serialization (may already be loaded)
     old_data = serialize_entity(book)
     old_version = book.version
 
@@ -1300,6 +1316,7 @@ async def approve_book(
     book.version += 1
 
     # Record approval in history
+    await db.refresh(book, ["authors"])  # Refresh after changes for new_data
     await record_approval(
         db=db,
         entity_type="book",
@@ -1378,6 +1395,9 @@ async def reject_book(
         )
 
     # Save old state
+    await db.refresh(
+        book, ["authors"]
+    )  # Load relationship for serialization (may already be loaded)
     old_data = serialize_entity(book)
     old_version = book.version
 
@@ -1387,6 +1407,7 @@ async def reject_book(
     book.version += 1
 
     # Record rejection in history
+    await db.refresh(book, ["authors"])  # Refresh after changes for new_data
     await record_rejection(
         db=db,
         entity_type="book",

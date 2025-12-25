@@ -84,7 +84,18 @@ def decode_and_validate_jwt(token: str) -> dict:
             detail="Wrong token type. Expected access token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    if payload.get("iss") != settings.JWT_ISSUER:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong issuer.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if payload.get("aud") != settings.JWT_AUDIENCE:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong audience.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return payload
 
 

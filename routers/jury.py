@@ -562,15 +562,18 @@ async def vote_on_book(
             detail="You don't have permission to vote",
         )
 
-    result = await cast_jury_vote(
-        db=db,
-        user_id=current_user["user_id"],
-        entity_type="book",
-        entity_id=book_id,
-        vote_value=vote_value,
-        entity=book,  # Pass eagerly-loaded entity
-        redis_client=r,  # Pass redis for cache invalidation
-    )
+    try:
+        result = await cast_jury_vote(
+            db=db,
+            user_id=current_user["user_id"],
+            entity_type="book",
+            entity_id=book_id,
+            vote_value=vote_value,
+            entity=book,  # Pass eagerly-loaded entity
+            redis_client=r,  # Pass redis for cache invalidation
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     await db.commit()
 
@@ -835,15 +838,18 @@ async def vote_on_collection(
             detail="You don't have permission to vote",
         )
 
-    result = await cast_jury_vote(
-        db=db,
-        user_id=current_user["user_id"],
-        entity_type="collection",
-        entity_id=collection_id,
-        vote_value=vote_value,
-        entity=collection,
-        redis_client=r,
-    )
+    try:
+        result = await cast_jury_vote(
+            db=db,
+            user_id=current_user["user_id"],
+            entity_type="collection",
+            entity_id=collection_id,
+            vote_value=vote_value,
+            entity=collection,
+            redis_client=r,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     await db.commit()
 

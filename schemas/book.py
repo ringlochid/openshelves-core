@@ -7,6 +7,7 @@ from enum import Enum
 from uuid import UUID
 from .shared import BookRead, AuthorRead, ReviewRead
 from pydantic import BaseModel, Field
+from pydantic.fields import computed_field
 from .shared import (
     BaseSchema,
     TimestampMixin,
@@ -94,12 +95,42 @@ class RollbackRequest(BaseModel):
 
 
 # ========================================
+# Serialize Book Schemas
+# ========================================
+
+
+class BookSerialize(BaseSchema):
+    """Schema for serializing book."""
+
+    id: int
+    version: int
+    title: str | None = Field(None, min_length=1, max_length=500)
+    year: int | None = Field(None, gt=0)
+    description: str | None = None
+    tags: list[str] | None = None
+    cover_key: str | None
+    file_key: str | None
+    file_format: str | None
+
+    # author relationship
+
+    authors: list["AuthorBrief"] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def author_ids(self) -> list[int]:
+        if not self.authors:
+            return []
+        return [author.id for author in self.authors]
+
+
+# ========================================
 # Response Schemas
 # ========================================
 class BookListRead(BookRead):
     """Book with authors for list endpoints."""
 
-    authors: list["AuthorRead"] = Field(default_factory=list)
+    authors: list["AuthorBrief"] = Field(default_factory=list)
 
 
 class BookListItem(BookBrief):
@@ -113,11 +144,9 @@ class BookListItem(BookBrief):
 
 
 class BookDetail(
-    BaseSchema,
-    TimestampMixin,
+    BookRead,
     VersioningMixin,
     WorkflowMixin,
-    CoverKeyMixin,
     FileKeyMixin,
 ):
     """Complete book information including workflow metadata."""

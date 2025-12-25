@@ -477,6 +477,7 @@ async def create_author(
     await db.flush()  # Get author.id before recording history
 
     # Record creation in edit history
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     await record_create(
         db=db,
         entity_type="author",
@@ -564,6 +565,7 @@ async def replace_author(
             detail="Insufficient permissions. Owner needs 'authors:update_own' or wiki-editor needs 'authors:update_public_meta' (APPROVED only)",
         )
 
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     old_version = author.version
 
@@ -613,6 +615,7 @@ async def replace_author(
     await db.flush()
 
     # Record update in edit history
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="author",
@@ -707,6 +710,7 @@ async def update_author(
         )
 
     # Store old data for history (serialize BEFORE any modifications)
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
 
     # Capture previous book_ids BEFORE modifying (needed for cache invalidation)
@@ -756,6 +760,7 @@ async def update_author(
     author.last_edited_at = datetime.now(timezone.utc)
 
     # Record update in edit history
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="author",
@@ -878,11 +883,18 @@ async def rollback_author_version(
     previous_book_ids = {book.id for book in author.books} if author.books else set()
 
     # Capture old state BEFORE rollback for audit
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data_for_audit = serialize_entity(author)
     old_version = author.version
 
     # Apply old data to current entity
     old_data = target_record.new_data
+    restored_changes = target_record.changes
+    if not restored_changes or restored_changes.get("total_changes") == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Version {data.target_version} has no changes to restore",
+        )
     if old_data:
         # Update fields from old version
         if "name" in old_data:
@@ -932,6 +944,7 @@ async def rollback_author_version(
     author.last_edited_at = datetime.now(timezone.utc)
 
     # Record rollback in history with correct pre/post snapshots
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="author",
@@ -1013,6 +1026,7 @@ async def delete_own_author(
         )
 
     # Soft delete
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     author.is_deleted = True
     author.deleted_at = datetime.now(timezone.utc)
@@ -1095,6 +1109,7 @@ async def recover_deleted_author(
             )
 
     # Restore author
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     author.is_deleted = False
     author.deleted_at = None
@@ -1111,6 +1126,7 @@ async def recover_deleted_author(
     author.last_edited_at = datetime.now(timezone.utc)
 
     # Record recovery in edit history
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="author",
@@ -1189,6 +1205,7 @@ async def takedown_author(
         )
 
     # Soft delete (hard removal)
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     author.is_deleted = True
     author.deleted_at = datetime.now(timezone.utc)
@@ -1423,6 +1440,7 @@ async def approve_author(
     votes_cleared = await clear_jury_votes(db, "author", author_id)
 
     # Update status
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     author.status = ContentStatus.APPROVED
     author.is_public = True
@@ -1431,6 +1449,7 @@ async def approve_author(
     author.last_edited_at = datetime.now(timezone.utc)
 
     # Record approval in edit history
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_approval(
         db=db,
         entity_type="author",
@@ -1525,6 +1544,7 @@ async def reject_author(
     votes_cleared = await clear_jury_votes(db, "author", author_id)
 
     # Update status
+    await db.refresh(author, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(author)
     author.status = ContentStatus.REJECTED
     author.is_public = False
@@ -1533,6 +1553,7 @@ async def reject_author(
     author.last_edited_at = datetime.now(timezone.utc)
 
     # Record rejection in edit history
+    await db.refresh(author, ["books"])  # Refresh after changes for new_data
     await record_rejection(
         db=db,
         entity_type="author",

@@ -205,8 +205,6 @@ class BookRead(BaseSchema, TimestampMixin, CoverKeyMixin):
     year: int | None
     description: str | None
     tags: list[str] | None = None
-    status: str  # ContentStatus enum value
-    is_public: bool
     subscriber_count: int
     created_by_user_id: UUID
     average_rating: float = 0.0

@@ -6,9 +6,8 @@ Supports curated book collections with workflow, versioning, and ordered books.
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
-
 from pydantic import BaseModel, Field
-
+from pydantic.fields import computed_field
 from .shared import (
     BaseSchema,
     TimestampMixin,
@@ -80,6 +79,31 @@ class CollectionRollbackRequest(BaseModel):
 
     target_version: int = Field(..., ge=1, description="Version number to rollback to")
     version: int = Field(..., description="Current version for optimistic locking")
+
+
+# ========================================
+# Serialize Collection Schemas
+# ========================================
+
+
+class CollectionSerialize(BaseSchema):
+    """Schema for serializing collection."""
+
+    id: int
+    version: int
+    name: str = Field(..., min_length=1, max_length=100, description="Collection name")
+    description: str | None = Field(None, description="Collection description")
+    cover_key: str | None = Field(None, description="Collection cover key")
+
+    # collection-book relationships
+    books: list["CollectionBookRead"] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def book_ids(self) -> list[int]:
+        if not self.books:
+            return []
+        return [book.book_id for book in self.books]
 
 
 # ========================================

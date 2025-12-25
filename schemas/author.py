@@ -3,9 +3,12 @@ Author Pydantic schemas for Library Service.
 Supports wiki-style author submissions with approval workflow and versioning.
 """
 
+import re
 from uuid import UUID
 from .shared import AuthorRead
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, Field
+from pydantic.functional_validators import field_validator
+from pydantic.fields import computed_field
 from .shared import (
     BaseSchema,
     TimestampMixin,
@@ -15,20 +18,35 @@ from .shared import (
     AvatarKeyMixin,
 )
 
+# ========================================
+# Email Schema
+# ========================================
+
+
+class EmailSchema(BaseModel):
+    email: str
+
+    @field_validator("email")
+    def validate_email(cls, v: str) -> str:
+        cleaned = v.strip().lower()
+        pattern = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+        if not pattern.match(cleaned):
+            raise ValueError("Invalid email format")
+        return cleaned
+
 
 # ========================================
 # Create/Update Schemas
 # ========================================
 
 
-class AuthorCreate(BaseModel):
+class AuthorCreate(EmailSchema):
     """Schema for creating a new author submission.
 
     Note: avatar_key is set via upload pipeline only, not directly.
     """
 
     name: str = Field(..., min_length=1, max_length=100, description="Author full name")
-    email: EmailStr | None = Field(None, description="Author contact email")
     bio: str | None = Field(None, description="Author biography")
     linked_user_id: UUID | None = Field(
         None, description="Link to registered user account"
@@ -51,11 +69,21 @@ class AuthorUpdate(BaseModel):
     """
 
     name: str | None = Field(None, min_length=1, max_length=100)
-    email: EmailStr | None = None
+    email: str | None = None
     bio: str | None = None
     linked_user_id: UUID | None = None
     book_ids: list[int] | None = None
     version: int = Field(..., description="Current version for optimistic locking")
+
+    @field_validator("email")
+    def validate_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        cleaned = v.strip().lower()
+        pattern = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+        if not pattern.match(cleaned):
+            raise ValueError("Invalid email format")
+        return cleaned
 
 
 class AuthorRollbackRequest(BaseModel):
@@ -63,6 +91,35 @@ class AuthorRollbackRequest(BaseModel):
 
     target_version: int = Field(..., ge=1, description="Version number to rollback to")
     version: int = Field(..., description="Current version for optimistic locking")
+
+
+# ========================================
+# Serialize Author Schemas
+# ========================================
+
+
+class AuthorSerialize(BaseSchema):
+    """Schema for serializing author."""
+
+    id: int
+    version: int
+    name: str = Field(..., min_length=1, max_length=100, description="Author full name")
+    email: str | None = Field(None, description="Author email")
+    bio: str | None = Field(None, description="Author biography")
+    avatar_key: str | None = Field(None, description="Author avatar key")
+    linked_user_id: UUID | None = Field(
+        None, description="Link to registered user account"
+    )
+
+    # book relationships
+    books: list["BookBrief"] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def book_ids(self) -> list[int]:
+        if not self.books:
+            return []
+        return [book.id for book in self.books]
 
 
 # ========================================

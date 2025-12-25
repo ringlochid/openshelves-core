@@ -11,7 +11,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import EditHistory, EditAction
-
+from schemas.author import AuthorSerialize
+from schemas.book import BookSerialize
+from schemas.collection import CollectionSerialize
 
 # ========================================
 # Version Conflict Detection
@@ -71,8 +73,8 @@ def calculate_changes(
     if new_data is None:
         new_data = {}
 
-    old_keys = set(old_data.keys())
-    new_keys = set(new_data.keys())
+    old_keys = set(k for k, v in old_data.items() if v is not None)
+    new_keys = set(k for k, v in new_data.items() if v is not None)
 
     added = list(new_keys - old_keys)
     removed = list(old_keys - new_keys)
@@ -292,9 +294,64 @@ async def record_recovery(
 # ========================================
 
 
-def serialize_entity(
-    entity: Any, exclude_fields: set[str] | None = None
-) -> dict[str, Any]:
+# CAUTION: This function is deprecated.
+# def serialize_entity(
+#     entity: Any, exclude_fields: set[str] | None = None
+# ) -> dict[str, Any]:
+#     """
+#     Serialize SQLAlchemy model to dict for history storage.
+
+#     Args:
+#         entity: SQLAlchemy model instance
+#         exclude_fields: Fields to exclude from serialization
+
+#     Returns:
+#         Dict representation suitable for JSON storage
+#     """
+#     from sqlalchemy import inspect
+
+#     if exclude_fields is None:
+#         exclude_fields = {"created_at", "updated_at"}  # Always exclude timestamps
+
+#     data = {}
+#     for column in entity.__table__.columns:
+#         if column.name not in exclude_fields:
+#             value = getattr(entity, column.name)
+
+#             # Convert UUIDs and datetime to strings
+#             if isinstance(value, UUID):
+#                 data[column.name] = str(value)
+#             elif isinstance(value, datetime):
+#                 data[column.name] = value.isoformat()
+#             else:
+#                 data[column.name] = value
+
+#     # Use SQLAlchemy inspect to check if relationships are already loaded
+#     # to avoid lazy-load triggers which fail outside async context
+#     insp = inspect(entity)
+
+#     # Special handling for relationships: serialize IDs for rollback
+#     # Book → authors (M2M) - only if relationship is loaded
+#     if "authors" in insp.dict:
+#         data["author_ids"] = [author.id for author in entity.authors]
+
+#     # Detect entity type by table name (reliable for SQLAlchemy models)
+#     table_name = entity.__table__.name
+
+#     # Collection → collection_books (ordered M2M through CollectionBook)
+#     if table_name == "collections" and "collection_books" in insp.dict:
+#         # Sort by position to maintain order
+#         sorted_books = sorted(entity.collection_books, key=lambda cb: cb.position)
+#         data["book_ids"] = [cb.book_id for cb in sorted_books]
+#     # Author → books (M2M) - only if relationship is loaded and NOT a Collection
+#     # (Collection.books returns CollectionBook objects, not Book objects)
+#     elif table_name == "authors" and "books" in insp.dict:
+#         data["book_ids"] = [book.id for book in entity.books]
+
+#     return data
+
+
+def serialize_entity(entity: Any) -> dict[str, Any]:
     """
     Serialize SQLAlchemy model to dict for history storage.
 
@@ -305,44 +362,14 @@ def serialize_entity(
     Returns:
         Dict representation suitable for JSON storage
     """
-    from sqlalchemy import inspect
-
-    if exclude_fields is None:
-        exclude_fields = {"created_at", "updated_at"}  # Always exclude timestamps
-
-    data = {}
-    for column in entity.__table__.columns:
-        if column.name not in exclude_fields:
-            value = getattr(entity, column.name)
-
-            # Convert UUIDs and datetime to strings
-            if isinstance(value, UUID):
-                data[column.name] = str(value)
-            elif isinstance(value, datetime):
-                data[column.name] = value.isoformat()
-            else:
-                data[column.name] = value
-
-    # Use SQLAlchemy inspect to check if relationships are already loaded
-    # to avoid lazy-load triggers which fail outside async context
-    insp = inspect(entity)
-
-    # Special handling for relationships: serialize IDs for rollback
-    # Book → authors (M2M) - only if relationship is loaded
-    if "authors" in insp.dict:
-        data["author_ids"] = [author.id for author in entity.authors]
-
     # Detect entity type by table name (reliable for SQLAlchemy models)
     table_name = entity.__table__.name
 
-    # Collection → collection_books (ordered M2M through CollectionBook)
-    if table_name == "collections" and "collection_books" in insp.dict:
-        # Sort by position to maintain order
-        sorted_books = sorted(entity.collection_books, key=lambda cb: cb.position)
-        data["book_ids"] = [cb.book_id for cb in sorted_books]
-    # Author → books (M2M) - only if relationship is loaded and NOT a Collection
-    # (Collection.books returns CollectionBook objects, not Book objects)
-    elif table_name == "authors" and "books" in insp.dict:
-        data["book_ids"] = [book.id for book in entity.books]
-
-    return data
+    if table_name == "authors":
+        return AuthorSerialize.model_validate(entity).model_dump(mode="json")
+    elif table_name == "books":
+        return BookSerialize.model_validate(entity).model_dump(mode="json")
+    elif table_name == "collections":
+        return CollectionSerialize.model_validate(entity).model_dump(mode="json")
+    else:
+        raise ValueError(f"Unknown entity type: {table_name}")

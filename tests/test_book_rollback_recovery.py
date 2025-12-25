@@ -32,6 +32,12 @@ class TestBookRollback:
                 "year": 2020,
                 "description": "Original description",
             },
+            changes={
+                "total_changes": 1,
+                "added": ["title", "year", "description"],
+                "modified": [],
+                "removed": [],
+            },
             created_at=datetime.now(timezone.utc),
         )
         test_db.add(history)
@@ -107,6 +113,12 @@ class TestBookRollback:
             user_id=approved_book.created_by_user_id,
             version=1,
             new_data={"version": 1, "title": "Version 1"},
+            changes={
+                "total_changes": 1,
+                "added": ["title"],
+                "modified": [],
+                "removed": [],
+            },
             created_at=datetime.now(timezone.utc),
         )
         test_db.add(history)

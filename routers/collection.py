@@ -464,6 +464,7 @@ async def create_collection(
         )
 
     # Record creation in history
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     await record_create(
         db=db,
         entity_type="collection",
@@ -538,6 +539,7 @@ async def update_collection(
         )
 
     # Save old state
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -563,6 +565,7 @@ async def update_collection(
     collection.last_edited_at = datetime.now(timezone.utc)
 
     # Record update
+    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="collection",
@@ -678,11 +681,18 @@ async def rollback_collection_version(
         )
 
     # Capture old state BEFORE rollback for audit
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data_for_audit = serialize_entity(collection)
     old_version = collection.version
 
     # Apply old data to current entity
     old_data = target_record.new_data
+    restored_changes = target_record.changes
+    if not restored_changes or restored_changes.get("total_changes") == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Version {data.target_version} has no changes to restore",
+        )
     if old_data:
         # Update fields from old version
         if "name" in old_data:
@@ -710,6 +720,7 @@ async def rollback_collection_version(
     collection.last_edited_at = datetime.now(timezone.utc)
 
     # Record rollback in history with correct pre/post snapshots
+    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
     await record_update(
         db=db,
         entity_type="collection",
@@ -780,6 +791,7 @@ async def delete_collection(
         )
 
     # Save old state
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(collection)
 
     # Soft delete
@@ -1171,6 +1183,7 @@ async def approve_collection(
         )
 
     # Save old state
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1180,6 +1193,7 @@ async def approve_collection(
     collection.version += 1
 
     # Record approval
+    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
     await record_approval(
         db=db,
         entity_type="collection",
@@ -1271,6 +1285,7 @@ async def reject_collection(
         )
 
     # Save old state
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1280,6 +1295,7 @@ async def reject_collection(
     collection.version += 1
 
     # Record rejection
+    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
     await record_rejection(
         db=db,
         entity_type="collection",
@@ -1365,6 +1381,7 @@ async def recover_collection(
         )
 
     # Save old state
+    await db.refresh(collection, ["books"])  # Load relationship for serialization
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1374,6 +1391,7 @@ async def recover_collection(
     collection.version += 1
 
     # Record recovery
+    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
     await record_recovery(
         db=db,
         entity_type="collection",
