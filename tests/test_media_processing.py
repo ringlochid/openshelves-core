@@ -219,15 +219,9 @@ class TestAVScan:
     """Tests for antivirus scanning."""
 
     def test_av_scan_disabled_when_no_host(self):
-        """AV scan should be skipped when CLAMAV_HOST is not configured."""
+        """AV scan should be skipped when CLAMAV_HOST is not configured (empty)."""
         with patch.object(settings, "CLAMAV_HOST", ""):
             # Should not raise, just return None
-            result = _av_scan(b"test data")
-            assert result is None
-
-    def test_av_scan_disabled_when_localhost(self):
-        """AV scan should be skipped when CLAMAV_HOST is localhost."""
-        with patch.object(settings, "CLAMAV_HOST", "localhost"):
             result = _av_scan(b"test data")
             assert result is None
 

@@ -1,9 +1,14 @@
+import logging
+
 from fastapi import HTTPException, status
 from models import Collection, CollectionBook, Book
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 from models import ContentStatus
+
+
+logger = logging.getLogger(__name__)
 
 
 def check_collection_permission(
@@ -22,8 +27,8 @@ def check_collection_permission(
     if require_manage_any:
         return False
 
-    # Owner check
-    is_owner = str(collection.created_by_user_id) == user_id
+    # Owner check - compare UUIDs directly
+    is_owner = collection.created_by_user_id == user_id
     if is_owner and "collections:update_own" in user_scopes:
         return True
 
@@ -38,7 +43,8 @@ def check_delete_permission(collection: Collection, user: dict) -> bool:
     if "collections:manage_any" in user_scopes:
         return True
 
-    is_owner = str(collection.created_by_user_id) == user_id
+    # Owner check - compare UUIDs directly
+    is_owner = collection.created_by_user_id == user_id
     if is_owner and "collections:delete_own" in user_scopes:
         return True
 
@@ -84,7 +90,7 @@ async def link_books_to_collection(
                     detail="At least one book not found",
                 )
             else:
-                print(f"Book not found: {book_id}")  # TODO: add logging in future
+                logger.warning("Book not found: %s", book_id)
             continue
 
         # Check if already in collection

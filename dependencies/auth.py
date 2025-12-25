@@ -141,7 +141,7 @@ async def get_current_user(
         )
 
     return {
-        "user_id": user_id,
+        "user_id": user_id,  # UUID object
         "roles": payload.get("roles", []),
         "scopes": payload.get("scopes", []),
         "trust_score": payload.get("trust_score", 0),
@@ -187,7 +187,7 @@ async def get_current_user_optional(
         user_id = UUID(payload["sub"])
 
         return {
-            "user_id": str(user_id),
+            "user_id": user_id,  # UUID object (consistent with get_current_user)
             "roles": payload.get("roles", []),
             "scopes": payload.get("scopes", []),
             "trust_score": payload.get("trust_score", 0),

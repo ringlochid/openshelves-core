@@ -65,8 +65,8 @@ def _allowed_extensions() -> set[str]:
 
 
 def _clamd_client():
-    """Get ClamAV client if configured."""
-    if not settings.CLAMAV_HOST or settings.CLAMAV_HOST == "localhost":
+    """Get ClamAV client if configured (CLAMAV_HOST is set and not empty)."""
+    if not settings.CLAMAV_HOST:
         return None
     if clamd is None:
         raise MediaProcessingError(

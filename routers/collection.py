@@ -3,8 +3,12 @@ Collection router for Library Service.
 Supports curated book collections with workflow, versioning, and ordered books.
 """
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
+
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, asc, desc, func, or_, select, text
@@ -92,7 +96,7 @@ async def list_collections(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -280,7 +284,7 @@ async def get_my_collections(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -342,7 +346,7 @@ async def get_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -426,7 +430,7 @@ async def create_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -449,7 +453,7 @@ async def create_collection(
         name=data.name,
         description=data.description,
         # Note: cover_key set via upload pipeline, not create endpoint
-        created_by_user_id=UUID(current_user["user_id"]),
+        created_by_user_id=current_user["user_id"],
         status=initial_status,
         is_public=initial_public,
         version=1,
@@ -502,7 +506,7 @@ async def update_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -561,7 +565,7 @@ async def update_collection(
         )
 
     collection.version += 1
-    collection.last_edited_by = UUID(current_user["user_id"])
+    collection.last_edited_by = current_user["user_id"]
     collection.last_edited_at = datetime.now(timezone.utc)
 
     # Record update
@@ -610,7 +614,7 @@ async def rollback_collection_version(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -761,7 +765,7 @@ async def delete_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1153,7 +1157,7 @@ async def approve_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1219,7 +1223,7 @@ async def approve_collection(
             entity_id=collection.id,
         )
     except Exception as e:
-        print(f"Warning: Failed to adjust trust for collection approval: {e}")
+        logger.warning("Failed to adjust trust for collection approval: %s", e)
 
     # Invalidate cache
     await cache.invalidate_collection(collection_id, r)
@@ -1255,7 +1259,7 @@ async def reject_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1321,7 +1325,7 @@ async def reject_collection(
             entity_id=collection.id,
         )
     except Exception as e:
-        print(f"Warning: Failed to adjust trust for collection rejection: {e}")
+        logger.warning("Failed to adjust trust for collection rejection: %s", e)
 
     # Invalidate cache
     await cache.invalidate_collection(collection_id, r)
@@ -1356,7 +1360,7 @@ async def recover_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1460,7 +1464,7 @@ async def subscribe_to_collection(
         select(CollectionSubscription).where(
             and_(
                 CollectionSubscription.collection_id == collection_id,
-                CollectionSubscription.user_id == UUID(current_user["user_id"]),
+                CollectionSubscription.user_id == current_user["user_id"],
             )
         )
     )
@@ -1473,7 +1477,7 @@ async def subscribe_to_collection(
     # Create subscription
     subscription = CollectionSubscription(
         collection_id=collection_id,
-        user_id=UUID(current_user["user_id"]),
+        user_id=current_user["user_id"],
     )
     db.add(subscription)
 
@@ -1505,7 +1509,7 @@ async def unsubscribe_from_collection(
         select(CollectionSubscription).where(
             and_(
                 CollectionSubscription.collection_id == collection_id,
-                CollectionSubscription.user_id == UUID(current_user["user_id"]),
+                CollectionSubscription.user_id == current_user["user_id"],
             )
         )
     )

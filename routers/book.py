@@ -3,8 +3,12 @@ Book router with wiki-style workflow, RBAC, and advanced search.
 Implements Phase 3 book and review management endpoints.
 """
 
+import logging
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
+
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,7 +109,7 @@ async def list_books(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -308,7 +312,7 @@ async def get_my_books(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -371,7 +375,7 @@ async def get_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -454,7 +458,7 @@ async def get_book_reviews(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -517,7 +521,7 @@ async def create_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -608,7 +612,7 @@ async def replace_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -744,7 +748,7 @@ async def update_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -883,7 +887,7 @@ async def delete_own_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -962,7 +966,7 @@ async def delete_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -1033,7 +1037,7 @@ async def rollback_book_version(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -1137,7 +1141,7 @@ async def rollback_book_version(
         found_ids = {a.id for a in author_objs}
         missing_ids = set(restored_author_ids) - found_ids
         if missing_ids:
-            print(f"WARNING: Rollback skipped deleted authors: {missing_ids}")
+            logger.warning("Rollback skipped deleted authors: %s", missing_ids)
 
         book.authors = author_objs
 
@@ -1188,7 +1192,7 @@ async def recover_deleted_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
 
@@ -1280,7 +1284,7 @@ async def approve_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1343,7 +1347,7 @@ async def approve_book(
             is_book=True,
         )
     except Exception as e:
-        print(f"Warning: Failed to adjust trust for book approval: {e}")
+        logger.warning("Failed to adjust trust for book approval: %s", e)
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
@@ -1371,7 +1375,7 @@ async def reject_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1435,7 +1439,7 @@ async def reject_book(
             is_book=True,
         )
     except Exception as e:
-        print(f"Warning: Failed to adjust trust for book rejection: {e}")
+        logger.warning("Failed to adjust trust for book rejection: %s", e)
 
     # Invalidate caches
     author_ids = [author.id for author in book.authors]
@@ -1467,7 +1471,7 @@ async def subscribe_to_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1545,7 +1549,7 @@ async def unsubscribe_from_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1613,7 +1617,7 @@ async def create_review(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1702,7 +1706,7 @@ async def update_review(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1762,7 +1766,7 @@ async def delete_review(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1826,7 +1830,7 @@ async def vote_on_review(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1919,7 +1923,7 @@ async def vote_on_review(
                 delta=delta,
             )
         except Exception as e:
-            print(f"Warning: Failed to adjust reviewer trust: {e}")
+            logger.warning("Failed to adjust reviewer trust: %s", e)
 
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)
@@ -1950,7 +1954,7 @@ async def remove_review_vote(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -2019,7 +2023,7 @@ async def remove_review_vote(
                 delta=delta,
             )
         except Exception as e:
-            print(f"Warning: Failed to reverse reviewer trust: {e}")
+            logger.warning("Failed to reverse reviewer trust: %s", e)
 
     # Invalidate book cache
     await cache.invalidate_book(review.book_id, r)

@@ -337,3 +337,6 @@ async def get_history_detail(
             )
 
     return EditHistoryRead.model_validate(record)
+
+
+# TODO: Add crossservice endpoint for user service to check if a history exists

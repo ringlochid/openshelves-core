@@ -87,37 +87,87 @@ async def serve_test_frontend():
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
     """
-    Readiness probe - checks DB and Redis connectivity.
+    Readiness probe - checks all dependencies.
     Returns 200 if all dependencies are healthy, 503 otherwise.
     Used by AWS App Runner to determine if the service can accept traffic.
-    """
-    errors = []
 
+    Checks:
+    - Database: PostgreSQL connection (SELECT 1)
+    - Redis: Connection ping
+    - Auth Service: /ready endpoint (DB + Redis of auth service)
+    - S3: Bucket accessibility (optional, won't fail if unconfigured)
+    """
+    from services.auth_client import auth_service_client
+    from services.storage import check_s3_health
+
+    errors = []
+    warnings = []
+    details = {}
+
+    # 1. Check Database
     try:
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
+        details["database"] = "ok"
     except Exception as e:
         errors.append(f"Database: {str(e)}")
+        details["database"] = str(e)
 
+    # 2. Check Redis
     try:
         redis = await init_redis()
         await redis.ping()
+        details["redis"] = "ok"
     except Exception as e:
         errors.append(f"Redis: {str(e)}")
+        details["redis"] = str(e)
+
+    # 3. Check Auth Service
+    auth_status = await auth_service_client.readiness_check()
+    if auth_status["healthy"]:
+        details["auth_service"] = "ok"
+    else:
+        errors.append(f"Auth Service: {auth_status['error']}")
+        details["auth_service"] = auth_status
+
+    # 4. Check S3 (warning only if unconfigured, error only if misconfigured/unreachable)
+    s3_status = await check_s3_health()
+    if s3_status["healthy"]:
+        details["s3"] = "ok"
+    elif s3_status["status"] == "unconfigured":
+        # S3 not configured is a warning, not an error
+        warnings.append(f"S3: {s3_status['error']}")
+        details["s3"] = s3_status
+    else:
+        # S3 configured but unhealthy is an error
+        errors.append(f"S3: {s3_status['error']}")
+        details["s3"] = s3_status
 
     if errors:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"status": "unhealthy", "errors": errors},
+            content={
+                "status": "unhealthy",
+                "errors": errors,
+                "warnings": warnings,
+                "details": details,
+            },
         )
 
-    return {"status": "ready", "database": "ok", "redis": "ok"}
+    response = {
+        "status": "ready",
+        "details": details,
+    }
+    if warnings:
+        response["warnings"] = warnings
+
+    return response
 
 
 # Include routers
 app.include_router(author.router)
 app.include_router(jury.router)
-app.include_router(book.router)  # Phase 3: Books & Reviews
-app.include_router(collection.router)  # Phase 4: Collections
-app.include_router(upload.router)  # Phase 5: Media Uploads
+app.include_router(book.router)  # Books & Reviews
+app.include_router(collection.router)  # Collections
+app.include_router(upload.router)  # Media Uploads
 app.include_router(history.router)  # Edit History

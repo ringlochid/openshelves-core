@@ -172,6 +172,54 @@ class AuthServiceClient:
             logger.warning(f"Auth Service health check failed: {str(e)}")
             return False
 
+    async def readiness_check(self) -> dict:
+        """
+        Check Auth Service readiness with detailed status.
+
+        Calls Auth Service /ready endpoint which checks DB and Redis.
+
+        Returns:
+            Dict with keys:
+            - healthy: bool - True if service is ready
+            - status: str - "ready", "unhealthy", or "unreachable"
+            - details: dict | None - Detailed status from Auth Service
+            - error: str | None - Error message if unhealthy
+        """
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(f"{self.base_url}/ready")
+                data = response.json()
+
+                if response.status_code == 200:
+                    return {
+                        "healthy": True,
+                        "status": "ready",
+                        "details": data,
+                        "error": None,
+                    }
+                else:
+                    return {
+                        "healthy": False,
+                        "status": "unhealthy",
+                        "details": data,
+                        "error": data.get("errors", ["Unknown error"]),
+                    }
+        except httpx.TimeoutException:
+            return {
+                "healthy": False,
+                "status": "unreachable",
+                "details": None,
+                "error": "Auth Service timeout (5s)",
+            }
+        except Exception as e:
+            logger.warning(f"Auth Service readiness check failed: {str(e)}")
+            return {
+                "healthy": False,
+                "status": "unreachable",
+                "details": None,
+                "error": str(e),
+            }
+
 
 # Global instance
 auth_service_client = AuthServiceClient()

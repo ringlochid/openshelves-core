@@ -3,9 +3,13 @@ Author router with wiki-style workflow and RBAC.
 Implements Phase 2 author management endpoints.
 """
 
+import logging
 from helpers.cursor import decode_cursor, encode_cursor
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
+
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,7 +87,7 @@ async def list_authors(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -210,7 +214,7 @@ async def get_my_authors(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -272,7 +276,7 @@ async def get_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -345,7 +349,7 @@ async def get_author_books(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -419,7 +423,7 @@ async def create_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -526,7 +530,7 @@ async def replace_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -664,7 +668,7 @@ async def update_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -747,8 +751,9 @@ async def update_author(
 
         if missing_book_ids:
             # Log warning but allow partial update (books may have been deleted/rejected after initial association)
-            print(
-                f"Warning: Cannot associate with books {missing_book_ids} - they are deleted, rejected, or don't exist"
+            logger.warning(
+                "Cannot associate with books %s - they are deleted, rejected, or don't exist",
+                missing_book_ids,
             )
 
         author.books = list(found_books)
@@ -813,7 +818,7 @@ async def rollback_author_version(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -933,9 +938,10 @@ async def rollback_author_version(
             try:
                 await validate_user_exists(UUID(old_data["linked_user_id"]))
             except Exception as e:
-                print(
-                    f"Warning: Restoring linked_user_id {old_data['linked_user_id']} "
-                    f"but user validation failed: {e}. Proceeding with rollback."
+                logger.warning(
+                    "Restoring linked_user_id %s but user validation failed: %s. Proceeding with rollback.",
+                    old_data["linked_user_id"],
+                    e,
                 )
 
     # Increment version (rollback creates new version)
@@ -992,7 +998,7 @@ async def delete_own_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1073,7 +1079,7 @@ async def recover_deleted_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1178,7 +1184,7 @@ async def takedown_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1249,7 +1255,7 @@ async def follow_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1339,7 +1345,7 @@ async def unfollow_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1406,7 +1412,7 @@ async def approve_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1473,7 +1479,7 @@ async def approve_author(
         )
     except Exception as e:
         # Log but don't fail the approval
-        print(f"Warning: Failed to adjust trust score: {e}")
+        logger.warning("Failed to adjust trust score: %s", e)
 
     # Refresh with books relationship loaded to avoid lazy load issues
     query = (
@@ -1510,7 +1516,7 @@ async def reject_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -1578,7 +1584,7 @@ async def reject_author(
         )
     except Exception as e:
         # Log but don't fail the rejection
-        print(f"Warning: Failed to adjust trust score: {e}")
+        logger.warning("Failed to adjust trust score: %s", e)
 
     # Refresh with books relationship loaded to avoid lazy load issues
     query = (

@@ -8,6 +8,8 @@ The jury system allows community members to vote on PENDING content:
 When vote_score >= 5, content is automatically published to APPROVED.
 """
 
+import logging
+
 import cache
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,9 @@ from fastapi import HTTPException
 from models import JuryVote, Author, Book, Collection, ContentStatus
 from helpers.edit_history import serialize_entity, record_approval
 from services.auth_client import adjust_trust_for_approval
+
+
+logger = logging.getLogger(__name__)
 
 
 # Vote threshold for auto-publish
@@ -147,7 +152,7 @@ async def cast_jury_vote(
             )
         except Exception as e:
             # Log but don't fail the approval
-            print(f"Warning: Failed to adjust trust score: {e}")
+            logger.warning("Failed to adjust trust score: %s", e)
 
         # Invalidate caches to prevent stale PENDING/jury queue data
         if redis_client:
@@ -348,8 +353,7 @@ async def _invalidate_entity_caches(
         await cache.bump_cache_version("jury:books", r)
 
     elif entity_type == "collection":
-        # TODO: Implement collection cache invalidation when collections are added
-        pass
+        await cache.invalidate_collection(entity_id, r)
 
 
 async def _invalidate_pending_vote_caches(

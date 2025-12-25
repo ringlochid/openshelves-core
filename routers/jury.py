@@ -60,7 +60,7 @@ async def list_pending_authors(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -137,7 +137,7 @@ async def get_pending_author_detail(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -205,7 +205,7 @@ async def vote_on_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -299,7 +299,7 @@ async def retract_vote_on_author(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -348,7 +348,7 @@ async def get_author_vote_status(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -405,7 +405,7 @@ async def list_pending_books(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -479,7 +479,7 @@ async def get_pending_book_detail(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -528,7 +528,7 @@ async def vote_on_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -599,7 +599,7 @@ async def retract_vote_on_book(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -636,7 +636,7 @@ async def get_book_vote_status(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -680,7 +680,7 @@ async def list_pending_collections(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -752,7 +752,7 @@ async def get_pending_collection_detail(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -802,7 +802,7 @@ async def vote_on_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_SENSITIVE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_SENSITIVE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -877,7 +877,7 @@ async def retract_vote_on_collection(
         key=rl_key,
         capacity=settings.RATE_LIMIT_WRITE_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_WRITE_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_WRITE_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:
@@ -914,7 +914,7 @@ async def get_collection_vote_status(
         key=rl_key,
         capacity=settings.RATE_LIMIT_READ_CAPACITY,
         refill_tokens=settings.RATE_LIMIT_READ_REFILL_TOKENS,
-        refill_period_seconds=settings.RATE_LIMIT_READ_PERIOD_SECONDS,
+        refill_period_seconds=settings.RATE_LIMIT_READ_REFILL_PERIOD_SECONDS,
         r=r,
     )
     if not allowed:

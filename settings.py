@@ -76,9 +76,8 @@ class Settings(BaseSettings):
         # Use DB 1 for results (safer than same DB as broker)
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/1"
 
-    # ClamAV (Virus Scanning)
-    CLAMAV_ENABLED: bool = False
-    CLAMAV_HOST: str = "localhost"
+    # ClamAV (Virus Scanning) - set CLAMAV_HOST to enable scanning
+    CLAMAV_HOST: str = ""  # Empty = disabled, set to hostname to enable
     CLAMAV_PORT: int = 3310
 
     # Content Management
@@ -101,22 +100,22 @@ class Settings(BaseSettings):
     # Read endpoints (GET) - generous limits
     RATE_LIMIT_READ_CAPACITY: int = 50
     RATE_LIMIT_READ_REFILL_TOKENS: int = 50
-    RATE_LIMIT_READ_PERIOD_SECONDS: int = 120
+    RATE_LIMIT_READ_REFILL_PERIOD_SECONDS: int = 120
 
     # Write endpoints (POST/PUT/PATCH) - moderate limits
     RATE_LIMIT_WRITE_CAPACITY: int = 30
     RATE_LIMIT_WRITE_REFILL_TOKENS: int = 30
-    RATE_LIMIT_WRITE_PERIOD_SECONDS: int = 3600
+    RATE_LIMIT_WRITE_REFILL_PERIOD_SECONDS: int = 3600
 
     # Sensitive endpoints (create content, jury voting) - strict limits
     RATE_LIMIT_SENSITIVE_CAPACITY: int = 10
     RATE_LIMIT_SENSITIVE_REFILL_TOKENS: int = 10
-    RATE_LIMIT_SENSITIVE_PERIOD_SECONDS: int = 3600
+    RATE_LIMIT_SENSITIVE_REFILL_PERIOD_SECONDS: int = 3600
 
     # Anonymous/IP-based rate limiting (unauthenticated requests)
     RATE_LIMIT_ANON_CAPACITY: int = 20
     RATE_LIMIT_ANON_REFILL_TOKENS: int = 20
-    RATE_LIMIT_ANON_PERIOD_SECONDS: int = 180
+    RATE_LIMIT_ANON_REFILL_PERIOD_SECONDS: int = 180
 
     # Upload rate limiting
     RATE_LIMIT_UPLOAD_CAPACITY: int = 10

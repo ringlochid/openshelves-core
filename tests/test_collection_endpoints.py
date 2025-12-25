@@ -330,7 +330,7 @@ async def test_create_collection_with_publish_direct(test_db, approved_book):
 async def test_update_collection_by_owner(test_db, pending_collection):
     """Test owner can update their collection."""
     fake_redis = FakeRedis()
-    owner_id = str(pending_collection.created_by_user_id)
+    owner_id = pending_collection.created_by_user_id  # UUID, not string
 
     async def override_get_db():
         yield test_db
@@ -417,7 +417,7 @@ async def test_update_collection_non_owner_forbidden(test_db, pending_collection
 async def test_delete_collection_by_owner(test_db, pending_collection):
     """Test owner can delete their collection."""
     fake_redis = FakeRedis()
-    owner_id = str(pending_collection.created_by_user_id)
+    owner_id = pending_collection.created_by_user_id  # UUID
 
     async def override_get_db():
         yield test_db
@@ -455,7 +455,7 @@ async def test_delete_collection_by_owner(test_db, pending_collection):
 async def test_add_book_to_collection(test_db, pending_collection, approved_book):
     """Test adding a book to a collection."""
     fake_redis = FakeRedis()
-    owner_id = str(pending_collection.created_by_user_id)
+    owner_id = pending_collection.created_by_user_id  # UUID
 
     # Create another approved book to add
     from datetime import datetime, timezone
@@ -511,7 +511,7 @@ async def test_add_book_to_collection(test_db, pending_collection, approved_book
 async def test_remove_book_from_collection(test_db, pending_collection, approved_book):
     """Test removing a book from a collection."""
     fake_redis = FakeRedis()
-    owner_id = str(pending_collection.created_by_user_id)
+    owner_id = pending_collection.created_by_user_id  # UUID
 
     async def override_get_db():
         yield test_db
