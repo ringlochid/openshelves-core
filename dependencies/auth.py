@@ -140,9 +140,17 @@ async def get_current_user(
             detail=f"Invalid user ID in token: {str(e)}",
         )
 
+    roles = payload.get("roles", [])
+    if not roles or "unverified" in roles or "blacklisted" in roles:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is unverified or blacklisted",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return {
         "user_id": user_id,  # UUID object
-        "roles": payload.get("roles", []),
+        "roles": roles,
         "scopes": payload.get("scopes", []),
         "trust_score": payload.get("trust_score", 0),
         "reputation_percentage": payload.get("reputation_percentage", 100.0),
@@ -186,9 +194,13 @@ async def get_current_user_optional(
         # Extract user information
         user_id = UUID(payload["sub"])
 
+        roles = payload.get("roles", [])
+        if not roles or "unverified" in roles or "blacklisted" in roles:
+            raise ValueError("User is unverified or blacklisted")
+
         return {
             "user_id": user_id,  # UUID object (consistent with get_current_user)
-            "roles": payload.get("roles", []),
+            "roles": roles,
             "scopes": payload.get("scopes", []),
             "trust_score": payload.get("trust_score", 0),
             "reputation_percentage": payload.get("reputation_percentage", 100.0),

@@ -156,7 +156,6 @@ class Author(Base):
         cascade="all, delete-orphan",
     )
 
-    # TODO, add versioning constraints
     __table_args__ = (
         CheckConstraint(
             "email IS NULL OR email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'",
@@ -168,6 +167,7 @@ class Author(Base):
         CheckConstraint(
             "vote_score >= 0 AND vote_score <= 5", name="ck_authors_vote_score_range"
         ),
+        CheckConstraint("version >= 1", name="ck_authors_version_positive"),
         CheckConstraint("trim(name) != ''", name="ck_authors_name_not_empty"),
         Index("ix_authors_created_by", "created_by_user_id"),
         Index("ix_authors_linked_user", "linked_user_id"),
@@ -313,6 +313,7 @@ class Book(Base):
         CheckConstraint(
             "vote_score >= 0 AND vote_score <= 5", name="ck_books_vote_score_range"
         ),
+        CheckConstraint("version >= 1", name="ck_books_version_positive"),
         CheckConstraint("trim(title) != ''", name="ck_books_title_not_empty"),
         CheckConstraint(
             "(file_key IS NULL AND file_format IS NULL) OR "
@@ -538,6 +539,7 @@ class Collection(Base):
             "vote_score >= 0 AND vote_score <= 5",
             name="ck_collections_vote_score_range",
         ),
+        CheckConstraint("version >= 1", name="ck_collections_version_positive"),
         CheckConstraint("trim(name) != ''", name="ck_collections_name_not_empty"),
         Index("ix_collections_created_by", "created_by_user_id"),
         Index("ix_collections_status_public", "status", "is_public"),
@@ -631,6 +633,7 @@ class EditHistory(Base):
     __tablename__ = "edit_history"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # TODO: Add trigger for semi-foreign key (low priority)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
     action: Mapped[EditAction] = mapped_column(

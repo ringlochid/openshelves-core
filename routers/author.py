@@ -8,8 +8,6 @@ from helpers.cursor import decode_cursor, encode_cursor
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
-
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +55,7 @@ from settings import settings
 
 router = APIRouter(prefix="/authors", tags=["Authors"])
 
+logger = logging.getLogger(__name__)
 
 # ========================================
 # PUBLIC ENDPOINTS (No Auth Required)

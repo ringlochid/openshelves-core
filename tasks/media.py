@@ -17,6 +17,7 @@ import boto3
 from PIL import Image, ImageOps, UnidentifiedImageError
 from botocore.exceptions import ClientError
 
+from helpers.edit_history import record_update, serialize_entity
 from celery_app import app
 from database import create_worker_session
 from models import Author, Book, Collection, EditHistory, EditAction
@@ -252,7 +253,6 @@ def _transform_image_cover(
 
 def _serialize_entity(entity: Any) -> dict[str, Any]:
     """Serialize entity for edit history - delegates to helpers.edit_history.serialize_entity."""
-    from helpers.edit_history import serialize_entity
 
     return serialize_entity(entity)
 
@@ -274,8 +274,6 @@ async def _update_image_key_with_history(
     Uses existing record_update helper from helpers/edit_history.py to avoid code duplication.
     Raises MediaProcessingError if entity version has advanced beyond expected_version.
     """
-    from helpers.edit_history import record_update, serialize_entity
-
     WorkerSession, engine = create_worker_session()
     redis = create_worker_redis()
 
@@ -357,7 +355,6 @@ async def _update_book_file_with_history(
     Uses existing record_update helper from helpers/edit_history.py to avoid code duplication.
     Raises MediaProcessingError if entity version has advanced beyond expected_version.
     """
-    from helpers.edit_history import record_update, serialize_entity
 
     WorkerSession, engine = create_worker_session()
     redis = create_worker_redis()

@@ -342,7 +342,7 @@ def mock_admin_user():
         "user_id": uuid4(),
         "username": "adminuser",
         "email": "admin@example.com",
-        "scopes": ["content:submit", "content:edit_any", "content:delete_any"],
+        "scopes": ["content:submit", "content:edit_any", "content:takedown"],
         "roles": ["admin"],
         "trust_score": 100,
     }

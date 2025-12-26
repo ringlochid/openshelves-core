@@ -7,8 +7,6 @@ import logging
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
-
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,13 +68,13 @@ from settings import settings
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-
+logger = logging.getLogger(__name__)
 # ========================================
 # PUBLIC ENDPOINTS (No Auth Required)
 # ========================================
 
 
-# TODO: Add caching for popular pattern: limits, sort
+# TODO: Add caching for popular pattern, e.g. trending books
 @router.get("", response_model=PaginatedBooksCursor)
 async def list_books(
     q: str | None = Query(None, description="Full-text search query"),
@@ -1757,7 +1755,7 @@ async def delete_review(
 ):
     """
     Soft delete your own review.
-    Curators can delete any review with content:delete_any scope.
+    Curators can delete any review with content:takedownscope.
     """
     rl_key = cache.make_rate_limit_key(
         "reviews:delete", current_user.get("user_id") or "unknown"
@@ -1787,9 +1785,7 @@ async def delete_review(
     # Permission check
     user_scopes = current_user.get("scopes", [])
     is_owner = review.user_id == current_user["user_id"]
-    can_delete_any = (
-        "content:delete_any" in user_scopes or "content:takedown" in user_scopes
-    )
+    can_delete_any = "content:takedown" in user_scopes
 
     if not (is_owner or can_delete_any):
         raise HTTPException(

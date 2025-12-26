@@ -99,6 +99,82 @@ class AuthServiceClient:
                 detail="Failed to adjust trust score",
             )
 
+    async def adjust_user_submissions(
+        self,
+        user_id: UUID,
+        total_delta: int,
+        successful_delta: int,
+        reason: str,
+        source: str = "upload",
+    ) -> dict:
+        """
+        Adjust user's submission counts and recalculate reputation via Auth Service.
+
+        This updates total_submissions and successful_submissions counters,
+        then recalculates reputation_percentage using Laplace smoothing.
+
+        Args:
+            user_id: User's UUID
+            total_delta: Change in total submissions (+1 for new submission)
+            successful_delta: Change in successful submissions (+1 if approved, 0 if rejected)
+            reason: Human-readable reason for adjustment
+            source: Source of the adjustment (upload, review, etc.)
+
+        Returns:
+            Response from Auth Service with updated reputation info
+
+        Raises:
+            HTTPException: If Auth Service request fails
+        """
+        url = f"{self.base_url}/user/admin/users/{user_id}/submissions/adjust"
+        payload = {
+            "total_delta": total_delta,
+            "successful_delta": successful_delta,
+            "reason": reason,
+            "source": source,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers=self._get_headers(),
+                )
+                response.raise_for_status()
+
+                result = response.json()
+                logger.info(
+                    f"Submissions adjusted for user {user_id}: "
+                    f"total_delta={total_delta:+d}, successful_delta={successful_delta:+d} "
+                    f"(reason: {reason}, new_reputation: {result.get('reputation_percentage')}%)"
+                )
+                return result
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout adjusting submissions for user {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Auth Service timeout",
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Auth Service returned {e.response.status_code} "
+                f"adjusting submissions for user {user_id}: {e.response.text}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Auth Service error: {e.response.text}",
+            )
+        except Exception as e:
+            logger.error(
+                f"Unexpected error adjusting submissions for user {user_id}: {str(e)}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to adjust submission counts",
+            )
+
     async def bulk_adjust_trust(
         self,
         adjustments: list[dict[str, Any]],
@@ -233,8 +309,12 @@ async def adjust_trust_for_approval(
     is_book: bool = False,
 ) -> dict:
     """
-    Adjust trust score when content is approved.
+    Adjust trust score and reputation when content is approved.
     Books get double rewards (20 vs 10).
+
+    This function:
+    1. Records a successful submission (updates reputation)
+    2. Adjusts trust score with appropriate bonus
 
     Args:
         user_id: Content submitter's UUID
@@ -243,12 +323,22 @@ async def adjust_trust_for_approval(
         is_book: Whether this is a book (for doubled reward)
 
     Returns:
-        Auth Service response
+        Auth Service response with updated trust and reputation
     """
     delta = 20 if is_book else 10
-    reason = f"{entity_type.capitalize()} approved"
+    reason = f"{entity_type.capitalize()} approved (id={entity_id})"
     source = "upload"
 
+    # Step 1: Record successful submission (updates reputation)
+    await auth_service_client.adjust_user_submissions(
+        user_id=user_id,
+        total_delta=1,
+        successful_delta=1,  # Successful submission
+        reason=reason,
+        source=source,
+    )
+
+    # Step 2: Adjust trust score
     return await auth_service_client.adjust_user_trust(
         user_id=user_id,
         delta=delta,
@@ -265,8 +355,12 @@ async def adjust_trust_for_rejection(
     is_book: bool = False,
 ) -> dict:
     """
-    Adjust trust score when content is rejected.
+    Adjust trust score and reputation when content is rejected.
     Books get double penalties (-10 vs -5).
+
+    This function:
+    1. Records a failed submission (updates reputation)
+    2. Adjusts trust score with appropriate penalty
 
     Args:
         user_id: Content submitter's UUID
@@ -276,12 +370,22 @@ async def adjust_trust_for_rejection(
         is_book: Whether this is a book (for doubled penalty)
 
     Returns:
-        Auth Service response
+        Auth Service response with updated trust and reputation
     """
     delta = -10 if is_book else -5
-    reason_text = f"{entity_type.capitalize()} rejected: {reason}"
+    reason_text = f"{entity_type.capitalize()} rejected (id={entity_id}): {reason}"
     source = "upload"
 
+    # Step 1: Record failed submission (updates reputation)
+    await auth_service_client.adjust_user_submissions(
+        user_id=user_id,
+        total_delta=1,
+        successful_delta=0,  # Failed submission
+        reason=reason_text,
+        source=source,
+    )
+
+    # Step 2: Adjust trust score (penalty)
     return await auth_service_client.adjust_user_trust(
         user_id=user_id,
         delta=delta,

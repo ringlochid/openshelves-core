@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     # Image processing
     COVER_OUTPUT_FORMAT: str = "WEBP"
     COVER_JPEG_QUALITY: int = 85
-    COVER_UPSCALE_MAX: float = 2.0  # Max upscale factor
+    COVER_UPSCALE_MAX: float = 5.0  # Max upscale factor
     COVER_MAX_PIXELS: int = 100_000_000  # Image bomb protection
 
     # Upload limits

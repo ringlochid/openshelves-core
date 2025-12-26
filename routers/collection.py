@@ -7,9 +7,6 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, asc, desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,11 +66,13 @@ from settings import settings
 
 router = APIRouter(prefix="/collections", tags=["Collections"])
 
+logger = logging.getLogger(__name__)
 # ========================================
 # PUBLIC ENDPOINTS
 # ========================================
 
 
+# TODO: Add caching for popular pattern, e.g. trending collections
 @router.get("", response_model=PaginatedCollectionsCursor)
 async def list_collections(
     q: str | None = Query(None, description="Full-text search query"),

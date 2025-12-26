@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Author, Book, Collection, ContentStatus
 from helpers.jwt_utils import create_test_jwt
 from services.auth_client import (
+    auth_service_client,
     adjust_trust_for_approval,
     adjust_trust_for_rejection,
 )
@@ -219,3 +220,165 @@ async def test_jury_auto_publish_calls_trust_adjustment(
     call_args = mock_adjust.call_args
     assert call_args.kwargs["user_id"] == submitter_id
     assert call_args.kwargs["entity_type"] == "author"
+
+
+# ============================================================
+# Tests for new submission adjustment / reputation integration
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_adjust_user_submissions_method(mocker):
+    """Test that adjust_user_submissions calls correct endpoint."""
+    from unittest.mock import MagicMock
+
+    user_id = uuid4()
+
+    # Mock httpx response - use MagicMock since json() is synchronous
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "user_id": str(user_id),
+        "trust_score": 50,
+        "reputation_percentage": 85.5,
+        "roles": ["user", "contributor"],
+        "pending_upgrade": None,
+        "is_blacklisted": False,
+        "is_locked": False,
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    mocker.patch("httpx.AsyncClient", return_value=mock_client)
+
+    result = await auth_service_client.adjust_user_submissions(
+        user_id=user_id,
+        total_delta=1,
+        successful_delta=1,
+        reason="Test submission",
+        source="upload",
+    )
+
+    # Verify the endpoint was called with correct payload
+    mock_client.post.assert_called_once()
+    call_args = mock_client.post.call_args
+    assert f"submissions/adjust" in call_args.args[0]
+    payload = call_args.kwargs["json"]
+    assert payload["total_delta"] == 1
+    assert payload["successful_delta"] == 1
+    assert payload["reason"] == "Test submission"
+    assert payload["source"] == "upload"
+
+    # Verify response
+    assert result["reputation_percentage"] == 85.5
+
+
+@pytest.mark.asyncio
+async def test_adjust_trust_for_approval_calls_both_endpoints(mocker):
+    """Test that approval calls submissions then trust endpoints."""
+    user_id = uuid4()
+
+    # Mock both client methods
+    mock_submissions = mocker.patch.object(
+        auth_service_client,
+        "adjust_user_submissions",
+        new_callable=AsyncMock,
+        return_value={"reputation_percentage": 90.0},
+    )
+    mock_trust = mocker.patch.object(
+        auth_service_client,
+        "adjust_user_trust",
+        new_callable=AsyncMock,
+        return_value={"trust_score": 60},
+    )
+
+    await adjust_trust_for_approval(
+        user_id=user_id,
+        entity_type="author",
+        entity_id=123,
+        is_book=False,
+    )
+
+    # Verify submissions was called first with successful=1
+    mock_submissions.assert_called_once()
+    sub_args = mock_submissions.call_args
+    assert sub_args.kwargs["user_id"] == user_id
+    assert sub_args.kwargs["total_delta"] == 1
+    assert sub_args.kwargs["successful_delta"] == 1
+    assert "approved" in sub_args.kwargs["reason"].lower()
+
+    # Verify trust was called with positive delta
+    mock_trust.assert_called_once()
+    trust_args = mock_trust.call_args
+    assert trust_args.kwargs["user_id"] == user_id
+    assert trust_args.kwargs["delta"] == 10  # Not a book
+
+
+@pytest.mark.asyncio
+async def test_adjust_trust_for_rejection_calls_both_endpoints(mocker):
+    """Test that rejection calls submissions then trust endpoints."""
+    user_id = uuid4()
+
+    # Mock both client methods
+    mock_submissions = mocker.patch.object(
+        auth_service_client,
+        "adjust_user_submissions",
+        new_callable=AsyncMock,
+        return_value={"reputation_percentage": 75.0},
+    )
+    mock_trust = mocker.patch.object(
+        auth_service_client,
+        "adjust_user_trust",
+        new_callable=AsyncMock,
+        return_value={"trust_score": 40},
+    )
+
+    await adjust_trust_for_rejection(
+        user_id=user_id,
+        entity_type="book",
+        entity_id=456,
+        reason="Low quality",
+        is_book=True,
+    )
+
+    # Verify submissions was called with successful=0 (failure)
+    mock_submissions.assert_called_once()
+    sub_args = mock_submissions.call_args
+    assert sub_args.kwargs["user_id"] == user_id
+    assert sub_args.kwargs["total_delta"] == 1
+    assert sub_args.kwargs["successful_delta"] == 0  # Failed submission
+    assert "rejected" in sub_args.kwargs["reason"].lower()
+
+    # Verify trust was called with negative delta (doubled for book)
+    mock_trust.assert_called_once()
+    trust_args = mock_trust.call_args
+    assert trust_args.kwargs["user_id"] == user_id
+    assert trust_args.kwargs["delta"] == -10  # Book penalty
+
+
+@pytest.mark.asyncio
+async def test_book_approval_gets_doubled_trust_reward(mocker):
+    """Test that book approval gets 20 trust points (doubled)."""
+    user_id = uuid4()
+
+    mock_submissions = mocker.patch.object(
+        auth_service_client, "adjust_user_submissions", new_callable=AsyncMock
+    )
+    mock_trust = mocker.patch.object(
+        auth_service_client, "adjust_user_trust", new_callable=AsyncMock
+    )
+
+    await adjust_trust_for_approval(
+        user_id=user_id,
+        entity_type="book",
+        entity_id=789,
+        is_book=True,
+    )
+
+    # Verify trust delta is 20 for books
+    trust_args = mock_trust.call_args
+    assert trust_args.kwargs["delta"] == 20

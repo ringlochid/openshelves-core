@@ -120,7 +120,7 @@ async def presign_book_cover(
     expires_ts = (
         int(datetime.now(timezone.utc).timestamp()) + settings.UPLOAD_EXPIRES_SECONDS
     )
-    s3_key = f"library/books/{book_id}/tmp/{upload_id}"
+    s3_key = f"tmp/books/{book_id}/{upload_id}"
 
     try:
         presigned = s3_client.generate_presigned_post(
@@ -306,7 +306,7 @@ async def presign_book_file(
     expires_ts = (
         int(datetime.now(timezone.utc).timestamp()) + settings.UPLOAD_EXPIRES_SECONDS
     )
-    s3_key = f"library/books/{book_id}/tmp/{upload_id}"
+    s3_key = f"tmp/books/{book_id}/{upload_id}"
 
     try:
         presigned = s3_client.generate_presigned_post(
@@ -479,7 +479,7 @@ async def presign_author_avatar(
     expires_ts = (
         int(datetime.now(timezone.utc).timestamp()) + settings.UPLOAD_EXPIRES_SECONDS
     )
-    s3_key = f"library/authors/{author_id}/tmp/{upload_id}"
+    s3_key = f"tmp/authors/{author_id}/{upload_id}"
 
     try:
         presigned = s3_client.generate_presigned_post(
@@ -661,7 +661,7 @@ async def presign_collection_cover(
     expires_ts = (
         int(datetime.now(timezone.utc).timestamp()) + settings.UPLOAD_EXPIRES_SECONDS
     )
-    s3_key = f"library/collections/{collection_id}/tmp/{upload_id}"
+    s3_key = f"tmp/collections/{collection_id}/{upload_id}"
 
     try:
         presigned = s3_client.generate_presigned_post(
