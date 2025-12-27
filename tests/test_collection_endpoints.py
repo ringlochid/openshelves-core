@@ -166,7 +166,7 @@ async def test_get_collection_public_success(test_db, approved_collection):
 async def test_get_pending_collection_owner_can_see(test_db, pending_collection):
     """Test that owners can see their pending collections."""
     fake_redis = FakeRedis()
-    owner_id = str(pending_collection.created_by_user_id)
+    owner_id = pending_collection.created_by_user_id  # UUID object, not string
 
     async def override_get_db():
         yield test_db

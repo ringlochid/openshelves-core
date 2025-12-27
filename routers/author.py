@@ -207,7 +207,7 @@ async def get_my_authors(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "authors:me", current_user.get("user_id") or "unknown"
+        "authors:me", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -314,9 +314,7 @@ async def get_author(
         )
 
     # Access control
-    is_owner = current_user and str(author.created_by_user_id) == current_user.get(
-        "user_id"
-    )
+    is_owner = current_user and author.created_by_user_id == current_user.get("user_id")
     is_public_approved = author.status == ContentStatus.APPROVED and author.is_public
 
     if not is_public_approved and not is_owner:
@@ -416,7 +414,7 @@ async def create_author(
     2. Regular users → status=PENDING (requires jury voting or curator approval)
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:create", current_user.get("user_id") or "unknown"
+        "authors:create", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -523,7 +521,7 @@ async def replace_author(
     Requires scope "authors:update_own" or "authors:update_public_meta".
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:replace", current_user.get("user_id") or "unknown"
+        "authors:replace", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -661,7 +659,7 @@ async def update_author(
     - Both: Allowed (owner overrides wiki-editor restrictions)
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:update", current_user.get("user_id") or "unknown"
+        "authors:update", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -811,7 +809,7 @@ async def rollback_author_version(
     Creates a new version with the old data (does not revert version number).
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:rollback", current_user.get("user_id") or "unknown"
+        "authors:rollback", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -846,7 +844,7 @@ async def rollback_author_version(
         )
 
     # Permission check
-    is_owner = str(author.created_by_user_id) == str(current_user["user_id"])
+    is_owner = author.created_by_user_id == current_user["user_id"]
     has_update_own = "authors:update_own" in current_user.get("scopes", [])
     has_edit_public_meta = "authors:edit_public_meta" in current_user.get("scopes", [])
 
@@ -991,7 +989,7 @@ async def delete_own_author(
     Requires 'authors:delete_own' scope + ownership.
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:delete", current_user.get("user_id") or "unknown"
+        "authors:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1072,7 +1070,7 @@ async def recover_deleted_author(
     Requires 'jury:override' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:recover", current_user.get("user_id") or "unknown"
+        "authors:recover", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1177,7 +1175,7 @@ async def takedown_author(
     Requires 'content:takedown' scope (curator role: trust_score >= 80, reputation >= 90%).
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:delete", current_user.get("user_id") or "unknown"
+        "authors:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1248,7 +1246,7 @@ async def follow_author(
     Requires authentication.
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:follow", current_user.get("user_id") or "unknown"
+        "authors:follow", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1338,7 +1336,7 @@ async def unfollow_author(
     Requires authentication.
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:unfollow", current_user.get("user_id") or "unknown"
+        "authors:unfollow", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1405,7 +1403,7 @@ async def approve_author(
     Awards +10 trust points to submitter.
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:approve", current_user.get("user_id") or "unknown"
+        "authors:approve", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1509,7 +1507,7 @@ async def reject_author(
     Deducts -5 trust points from submitter.
     """
     rl_key = cache.make_rate_limit_key(
-        "authors:reject", current_user.get("user_id") or "unknown"
+        "authors:reject", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,

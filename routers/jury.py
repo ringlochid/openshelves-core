@@ -54,7 +54,7 @@ async def list_pending_authors(
     Cached with version-based invalidation (bumped when voting/approval happens).
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:authors:list", current_user.get("user_id") or "unknown"
+        "jury:authors:list", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -131,7 +131,7 @@ async def get_pending_author_detail(
     Uses author cache (invalidated on any author change).
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:authors:get", current_user.get("user_id") or "unknown"
+        "jury:authors:get", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -199,7 +199,7 @@ async def vote_on_author(
     Auto-publishes when vote_score >= 5 (awards +10 trust to submitter).
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:authors:vote", current_user.get("user_id") or "unknown"
+        "jury:authors:vote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -293,7 +293,7 @@ async def retract_vote_on_author(
     Decrements the vote_score by your vote value.
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:authors:unvote", current_user.get("user_id") or "unknown"
+        "jury:authors:unvote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -342,7 +342,7 @@ async def get_author_vote_status(
     Shows current score, threshold, and who voted.
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:authors:votes", current_user.get("user_id") or "unknown"
+        "jury:authors:votes", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -399,7 +399,7 @@ async def list_pending_books(
     Shows books awaiting jury votes or curator approval.
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:books:list", current_user.get("user_id") or "unknown"
+        "jury:books:list", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -473,7 +473,7 @@ async def get_pending_book_detail(
 ):
     """Get detailed information about a pending book in the jury queue."""
     rl_key = cache.make_rate_limit_key(
-        "jury:books:get", current_user.get("user_id") or "unknown"
+        "jury:books:get", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -522,7 +522,7 @@ async def vote_on_book(
     Vote weight based on user scopes (contributor=1, trusted=5).
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:books:vote", current_user.get("user_id") or "unknown"
+        "jury:books:vote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -593,7 +593,7 @@ async def retract_vote_on_book(
 ):
     """Retract your jury vote on a pending book."""
     rl_key = cache.make_rate_limit_key(
-        "jury:books:unvote", current_user.get("user_id") or "unknown"
+        "jury:books:unvote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -630,7 +630,7 @@ async def get_book_vote_status(
 ):
     """Get voting status and statistics for a pending book."""
     rl_key = cache.make_rate_limit_key(
-        "jury:books:votes", current_user.get("user_id") or "unknown"
+        "jury:books:votes", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -674,7 +674,7 @@ async def list_pending_collections(
     Requires 'jury:view' scope.
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:collections:list", current_user.get("user_id") or "unknown"
+        "jury:collections:list", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -746,7 +746,7 @@ async def get_pending_collection_detail(
 ):
     """Get detailed information about a pending collection in the jury queue."""
     rl_key = cache.make_rate_limit_key(
-        "jury:collections:get", current_user.get("user_id") or "unknown"
+        "jury:collections:get", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -796,7 +796,7 @@ async def vote_on_collection(
     Vote weight based on user scopes (contributor=1, trusted=5).
     """
     rl_key = cache.make_rate_limit_key(
-        "jury:collections:vote", current_user.get("user_id") or "unknown"
+        "jury:collections:vote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -871,7 +871,7 @@ async def retract_vote_on_collection(
 ):
     """Retract your jury vote on a pending collection."""
     rl_key = cache.make_rate_limit_key(
-        "jury:collections:unvote", current_user.get("user_id") or "unknown"
+        "jury:collections:unvote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -908,7 +908,7 @@ async def get_collection_vote_status(
 ):
     """Get voting status and statistics for a pending collection."""
     rl_key = cache.make_rate_limit_key(
-        "jury:collections:votes", current_user.get("user_id") or "unknown"
+        "jury:collections:votes", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,

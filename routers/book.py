@@ -304,7 +304,7 @@ async def get_my_books(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "books:me", current_user.get("user_id") or "unknown"
+        "books:me", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -413,9 +413,7 @@ async def get_book(
         )
 
     # Access control
-    is_owner = current_user and str(book.created_by_user_id) == current_user.get(
-        "user_id"
-    )
+    is_owner = current_user and book.created_by_user_id == current_user.get("user_id")
     is_public_approved = book.status == ContentStatus.APPROVED and book.is_public
 
     if not is_public_approved and not is_owner:
@@ -513,7 +511,7 @@ async def create_book(
     - Otherwise: PENDING + is_public=False (enters jury queue)
     """
     rl_key = cache.make_rate_limit_key(
-        "books:create", current_user.get("user_id") or "unknown"
+        "books:create", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -604,7 +602,7 @@ async def replace_book(
     Replace an existing book with new data.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:replace", current_user.get("user_id") or "unknown"
+        "books:replace", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -740,7 +738,7 @@ async def update_book(
     - Contributor+: if book is APPROVED (wiki-style editing with books:edit_public_meta)
     """
     rl_key = cache.make_rate_limit_key(
-        "books:update", current_user.get("user_id") or "unknown"
+        "books:update", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -879,7 +877,7 @@ async def delete_own_book(
     Requires 'books:delete_own' scope + ownership.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:delete", current_user.get("user_id") or "unknown"
+        "books:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -958,7 +956,7 @@ async def delete_book(
     Can be recovered within 24 hours.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:delete", current_user.get("user_id") or "unknown"
+        "books:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1029,7 +1027,7 @@ async def rollback_book_version(
     Permissions: owner (if PENDING) or wiki-editor (if APPROVED)
     """
     rl_key = cache.make_rate_limit_key(
-        "books:rollback", current_user.get("user_id") or "unknown"
+        "books:rollback", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1184,7 +1182,7 @@ async def recover_deleted_book(
     Only works within 24 hours of deletion.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:recover", current_user.get("user_id") or "unknown"
+        "books:recover", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1276,7 +1274,7 @@ async def approve_book(
     Books get doubled trust reward due to file upload validation.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:approve", current_user.get("user_id") or "unknown"
+        "books:approve", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1367,7 +1365,7 @@ async def reject_book(
     Books get doubled trust penalty due to file upload validation.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:reject", current_user.get("user_id") or "unknown"
+        "books:reject", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1463,7 +1461,7 @@ async def subscribe_to_book(
     Social engagement is for tracking only.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:subscribe", current_user.get("user_id") or "unknown"
+        "books:subscribe", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1541,7 +1539,7 @@ async def unsubscribe_from_book(
     Decrements subscriber count.
     """
     rl_key = cache.make_rate_limit_key(
-        "books:unsubscribe", current_user.get("user_id") or "unknown"
+        "books:unsubscribe", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1609,7 +1607,7 @@ async def create_review(
     One review per user per book (unique constraint).
     """
     rl_key = cache.make_rate_limit_key(
-        "reviews:create", current_user.get("user_id") or "unknown"
+        "reviews:create", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1698,7 +1696,7 @@ async def update_review(
     Only rating and comment can be updated.
     """
     rl_key = cache.make_rate_limit_key(
-        "reviews:update", current_user.get("user_id") or "unknown"
+        "reviews:update", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1758,7 +1756,7 @@ async def delete_review(
     Curators can delete any review with content:takedownscope.
     """
     rl_key = cache.make_rate_limit_key(
-        "reviews:delete", current_user.get("user_id") or "unknown"
+        "reviews:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1820,7 +1818,7 @@ async def vote_on_review(
     - Max ±5 trust per review
     """
     rl_key = cache.make_rate_limit_key(
-        "reviews:vote", current_user.get("user_id") or "unknown"
+        "reviews:vote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1944,7 +1942,7 @@ async def remove_review_vote(
     Reverses the trust adjustment.
     """
     rl_key = cache.make_rate_limit_key(
-        "reviews:unvote", current_user.get("user_id") or "unknown"
+        "reviews:unvote", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,

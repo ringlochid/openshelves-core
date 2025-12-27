@@ -277,7 +277,7 @@ async def get_my_collections(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:me", current_user.get("user_id") or "unknown"
+        "collections:me", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -379,7 +379,7 @@ async def get_collection(
         )
 
     # Access control
-    is_owner = current_user and str(collection.created_by_user_id) == current_user.get(
+    is_owner = current_user and collection.created_by_user_id == current_user.get(
         "user_id"
     )
     is_public_approved = (
@@ -423,7 +423,7 @@ async def create_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:create", current_user.get("user_id") or "unknown"
+        "collections:create", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -499,7 +499,7 @@ async def update_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:update", current_user.get("user_id") or "unknown"
+        "collections:update", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -607,7 +607,7 @@ async def rollback_collection_version(
     Creates a new version with the old data (does not revert version number).
     """
     rl_key = cache.make_rate_limit_key(
-        "collections:rollback", current_user.get("user_id") or "unknown"
+        "collections:rollback", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -644,7 +644,7 @@ async def rollback_collection_version(
         )
 
     # Permission check
-    is_owner = str(collection.created_by_user_id) == str(current_user["user_id"])
+    is_owner = collection.created_by_user_id == current_user["user_id"]
     has_update_own = "collections:update_own" in current_user.get("scopes", [])
     has_edit_public_meta = "collections:edit_public_meta" in current_user.get(
         "scopes", []
@@ -758,7 +758,7 @@ async def delete_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:delete", current_user.get("user_id") or "unknown"
+        "collections:delete", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1150,7 +1150,7 @@ async def approve_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:approve", current_user.get("user_id") or "unknown"
+        "collections:approve", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1252,7 +1252,7 @@ async def reject_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:reject", current_user.get("user_id") or "unknown"
+        "collections:reject", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,
@@ -1353,7 +1353,7 @@ async def recover_collection(
     """
     # Rate limiting
     rl_key = cache.make_rate_limit_key(
-        "collections:recover", current_user.get("user_id") or "unknown"
+        "collections:recover", str(current_user.get("user_id") or "unknown")
     )
     allowed, _ = await cache.token_bucket_allow(
         key=rl_key,

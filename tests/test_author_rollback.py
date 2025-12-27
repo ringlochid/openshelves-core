@@ -3,6 +3,7 @@ Tests for author version rollback functionality.
 """
 
 import pytest
+from uuid import UUID
 from httpx import AsyncClient
 from helpers.jwt_utils import create_test_jwt
 
@@ -16,7 +17,7 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        user_id = "550e8400-e29b-41d4-a716-446655440000"
+        user_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         # Create author
         author = Author(
@@ -120,7 +121,7 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        owner_id = "550e8400-e29b-41d4-a716-446655440000"
+        owner_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         # Create author
         author = Author(
@@ -174,8 +175,8 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        owner_id = "550e8400-e29b-41d4-a716-446655440000"
-        editor_id = "550e8400-e29b-41d4-a716-446655440001"
+        owner_id = UUID("550e8400-e29b-41d4-a716-446655440000")
+        editor_id = UUID("550e8400-e29b-41d4-a716-446655440001")
 
         # Create APPROVED author by someone else
         author = Author(
@@ -229,8 +230,8 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        owner_id = "550e8400-e29b-41d4-a716-446655440000"
-        other_user_id = "550e8400-e29b-41d4-a716-446655440001"
+        owner_id = UUID("550e8400-e29b-41d4-a716-446655440000")
+        other_user_id = UUID("550e8400-e29b-41d4-a716-446655440001")
 
         # Create PENDING author
         author = Author(
@@ -281,7 +282,7 @@ class TestAuthorRollback:
         """Test that rollback fails when target version doesn't exist."""
         from models import Author, ContentStatus
 
-        user_id = "550e8400-e29b-41d4-a716-446655440000"
+        user_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         # Create author without edit history
         author = Author(
@@ -317,7 +318,7 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        user_id = "550e8400-e29b-41d4-a716-446655440000"
+        user_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         # Create author at version 3
         author = Author(
@@ -374,7 +375,7 @@ class TestAuthorRollback:
         from models import Author, EditHistory, ContentStatus, EditAction
         from datetime import datetime, timezone
 
-        user_id = "550e8400-e29b-41d4-a716-446655440000"
+        user_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         # Create author at version 3
         author = Author(

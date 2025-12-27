@@ -43,7 +43,7 @@ def can_view_entity_history(entity, current_user: dict | None) -> bool:
 
     # Owner can always view their own entity history
     user_id = current_user.get("user_id")
-    if user_id and str(entity.created_by_user_id) == str(user_id):
+    if user_id and entity.created_by_user_id == user_id:
         return True
 
     # Jury members can view all history (transparency for abuse reporting)
