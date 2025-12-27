@@ -241,7 +241,8 @@ class AuthServiceClient:
             True if Auth Service is healthy, False otherwise
         """
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            timeout = httpx.Timeout(5.0, connect=2.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(f"{self.base_url}/health")
                 return response.status_code == 200
         except Exception as e:
@@ -262,7 +263,9 @@ class AuthServiceClient:
             - error: str | None - Error message if unhealthy
         """
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            # Use explicit connect timeout to fail fast when network is unreachable
+            timeout = httpx.Timeout(5.0, connect=2.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(f"{self.base_url}/ready")
                 data = response.json()
 

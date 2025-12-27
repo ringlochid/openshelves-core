@@ -46,6 +46,18 @@ class MediaProcessingError(Exception):
 # HELPER FUNCTIONS
 # ========================================
 
+
+def _get_s3_client():
+    """Get S3 client - supports both explicit credentials (local dev) and IAM roles (AWS)."""
+    client_kwargs = {"region_name": settings.AWS_REGION}
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+        client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+    if settings.S3_ENDPOINT_URL:
+        client_kwargs["endpoint_url"] = settings.S3_ENDPOINT_URL
+    return boto3.client("s3", **client_kwargs)
+
+
 # MIME type to file extension mapping (use "jpeg" not "jpg" for consistency)
 MIME_TO_EXT: dict[str, set[str]] = {
     "image/jpeg": {"jpg", "jpeg"},
@@ -424,13 +436,7 @@ def process_avatar(
     if not bucket:
         raise MediaProcessingError("S3 bucket not configured")
 
-    s3 = boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        endpoint_url=settings.S3_ENDPOINT_URL,
-    )
+    s3 = _get_s3_client()
 
     try:
         meta = s3.head_object(Bucket=bucket, Key=s3_key)
@@ -498,13 +504,7 @@ def process_cover(
     if not bucket:
         raise MediaProcessingError("S3 bucket not configured")
 
-    s3 = boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        endpoint_url=settings.S3_ENDPOINT_URL,
-    )
+    s3 = _get_s3_client()
 
     try:
         meta = s3.head_object(Bucket=bucket, Key=s3_key)
@@ -572,13 +572,7 @@ def process_book_file(
     if not bucket:
         raise MediaProcessingError("S3 bucket not configured")
 
-    s3 = boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        endpoint_url=settings.S3_ENDPOINT_URL,
-    )
+    s3 = _get_s3_client()
 
     try:
         meta = s3.head_object(Bucket=bucket, Key=s3_key)

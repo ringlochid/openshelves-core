@@ -1,61 +1,714 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Library Service - API Tester</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-        }
-        .container {
-            text-align: center;
-            padding: 40px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        h1 {
-            font-size: 2rem;
-            margin-bottom: 16px;
-            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        p {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 1.1rem;
-        }
-        .badge {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 8px 16px;
-            background: rgba(123, 47, 247, 0.2);
-            border: 1px solid rgba(123, 47, 247, 0.5);
-            border-radius: 20px;
-            font-size: 0.9rem;
-            color: #b794f6;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Library Service - API Tester</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>📚 Library Service API Tester</h1>
-        <p>This page will be implemented in the future.</p>
-        <div class="badge">🚧 Coming Soon</div>
-    </div>
+  <div id="toastContainer" class="toast-container"></div>
+
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h1>📚 Library Tester</h1>
+        <div class="subtitle">API Testing Console</div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-title">Auth Service</div>
+        <button class="nav-item active" data-page="auth"><span class="icon">🔐</span> Login / Register</button>
+        <button class="nav-item" data-page="email"><span class="icon">📧</span> Email Verification</button>
+        <button class="nav-item" data-page="profile"><span class="icon">👤</span> Profile & Avatar</button>
+        <button class="nav-item" data-page="sessions"><span class="icon">📱</span> Sessions</button>
+        <button class="nav-item" data-page="trust"><span class="icon">⭐</span> Trust & Reports</button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-title">Library Service</div>
+        <button class="nav-item" data-page="books"><span class="icon">📖</span> Books Browse</button>
+        <button class="nav-item" data-page="book-detail"><span class="icon">📄</span> Book Detail</button>
+        <button class="nav-item" data-page="book-crud"><span class="icon">✏️</span> Book CRUD</button>
+        <button class="nav-item" data-page="authors"><span class="icon">✍️</span> Authors</button>
+        <button class="nav-item" data-page="author-crud"><span class="icon">📝</span> Author CRUD</button>
+        <button class="nav-item" data-page="collections"><span class="icon">📚</span> Collections</button>
+        <button class="nav-item" data-page="jury"><span class="icon">⚖️</span> Jury Queue</button>
+        <button class="nav-item" data-page="history"><span class="icon">🕐</span> Edit History</button>
+        <button class="nav-item" data-page="uploads"><span class="icon">📤</span> Media Upload</button>
+      </div>
+
+      <div class="nav-section" style="margin-top:auto;padding-bottom:16px;">
+        <button class="nav-item" data-page="health"><span class="icon">💓</span> Health Check</button>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="top-bar">
+        <div class="user-status">
+          <div class="status-badge">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Not logged in</span>
+          </div>
+          <span class="scopes-display" id="scopesDisplay"></span>
+        </div>
+        <button class="btn btn-danger btn-sm hidden" id="logoutBtn" onclick="handleLogout()">Logout</button>
+      </div>
+
+      <div class="content-area">
+        <div class="page-content">
+          <!-- ===================== AUTH PAGE ===================== -->
+          <div class="page active" id="page-auth">
+            <h2 class="page-title">🔐 Authentication</h2>
+            <p class="page-subtitle">Login or create a new account</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Login</div>
+                <div class="card-subtitle">Sign in to your account</div>
+                <div class="form-group">
+                  <label>Email or Username</label>
+                  <input type="text" id="loginId" placeholder="john@example.com or johndoe">
+                </div>
+                <div class="form-group">
+                  <label>Password</label>
+                  <input type="password" id="loginPwd" placeholder="Your password">
+                </div>
+                <button class="btn btn-primary" onclick="handleLogin()">Sign In</button>
+                <div class="btn-group mt-4">
+                  <button class="btn btn-secondary btn-sm" onclick="handleRefresh()">🔄 Refresh Token</button>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Register</div>
+                <div class="card-subtitle">Create a new account</div>
+                <div class="form-group">
+                  <label>Username</label>
+                  <input type="text" id="regName" placeholder="johndoe">
+                </div>
+                <div class="form-group">
+                  <label>Email</label>
+                  <input type="email" id="regEmail" placeholder="john@example.com">
+                </div>
+                <div class="form-group">
+                  <label>Password</label>
+                  <input type="password" id="regPwd" placeholder="Min 8 chars, upper, lower, digit, symbol">
+                </div>
+                <button class="btn btn-primary" onclick="handleRegister()">Create Account</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== EMAIL PAGE ===================== -->
+          <div class="page" id="page-email">
+            <h2 class="page-title">📧 Email Verification</h2>
+            <p class="page-subtitle">Verify your email address</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Send Verification</div>
+                <div class="form-group">
+                  <label>Email Address</label>
+                  <input type="email" id="verifyEmail" placeholder="Your registered email">
+                </div>
+                <button class="btn btn-primary" onclick="handleSendVerify()">Send Verification Email</button>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Verify Token</div>
+                <div class="form-group">
+                  <label>Verification Token</label>
+                  <input type="text" id="verifyToken" placeholder="Token from email link">
+                </div>
+                <button class="btn btn-success" onclick="handleVerifyToken()">Verify Email</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== PROFILE PAGE ===================== -->
+          <div class="page" id="page-profile">
+            <h2 class="page-title">👤 Profile & Avatar</h2>
+            <p class="page-subtitle">View and update your profile</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Profile Info</div>
+                <div id="profileDisplay" class="text-muted">Login to view profile</div>
+                <div class="mt-4">
+                  <button class="btn btn-secondary" onclick="loadProfile()">🔄 Refresh</button>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Update Profile</div>
+                <div class="form-group">
+                  <label>Display Name</label>
+                  <input type="text" id="updateName" placeholder="New display name">
+                </div>
+                <div class="form-group">
+                  <label>Bio</label>
+                  <textarea id="updateBio" rows="3" placeholder="Tell us about yourself"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="handleUpdateProfile()">Save Changes</button>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <div class="card-title">Avatar Upload</div>
+              <div class="card-subtitle">Upload a new profile picture</div>
+              <div class="form-group">
+                <label>Select Image (JPEG, PNG, WebP)</label>
+                <input type="file" id="avatarFile" accept="image/jpeg,image/png,image/webp">
+              </div>
+              <button class="btn btn-primary" onclick="handleAvatarUpload()">Upload Avatar</button>
+            </div>
+          </div>
+
+          <!-- ===================== SESSIONS PAGE ===================== -->
+          <div class="page" id="page-sessions">
+            <h2 class="page-title">📱 Sessions</h2>
+            <p class="page-subtitle">Manage your active sessions</p>
+            
+            <div class="card">
+              <div class="flex justify-between items-center mb-4">
+                <div class="card-title">Active Sessions</div>
+                <button class="btn btn-secondary btn-sm" onclick="loadSessions()">🔄 Refresh</button>
+              </div>
+              <div id="sessionsDisplay" class="text-muted">Login to view sessions</div>
+            </div>
+          </div>
+
+          <!-- ===================== TRUST PAGE ===================== -->
+          <div class="page" id="page-trust">
+            <h2 class="page-title">⭐ Trust & Reports</h2>
+            <p class="page-subtitle">View trust info and submit content reports</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Your Trust Info</div>
+                <div id="trustDisplay" class="text-muted">Login to view trust info</div>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Submit Report</div>
+                <div class="card-subtitle">Report problematic content (requires contributor role)</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Content Type</label>
+                    <select id="reportContentType">
+                      <option value="book">Book</option>
+                      <option value="author">Author</option>
+                      <option value="collection">Collection</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Content ID</label>
+                    <input type="number" id="reportContentId" placeholder="e.g., 1">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Edit ID</label>
+                    <input type="number" id="reportEditId" placeholder="From history">
+                  </div>
+                  <div class="form-group">
+                    <label>Actor ID (UUID)</label>
+                    <input type="text" id="reportActorId" placeholder="User who made edit">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Category</label>
+                  <select id="reportCategory">
+                    <option value="SPAM">Spam</option>
+                    <option value="INAPPROPRIATE">Inappropriate</option>
+                    <option value="VANDALISM">Vandalism</option>
+                    <option value="COPYRIGHT">Copyright</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Reason (min 10 chars)</label>
+                  <textarea id="reportReason" rows="2" placeholder="Why should this be reviewed?"></textarea>
+                </div>
+                <button class="btn btn-warning" onclick="handleSubmitReport()">Submit Report</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== BOOKS BROWSE PAGE ===================== -->
+          <div class="page" id="page-books">
+            <h2 class="page-title">📖 Books Browse</h2>
+            <p class="page-subtitle">Search and browse approved books</p>
+            
+            <div class="filters-bar">
+              <div class="form-group">
+                <label>Search</label>
+                <input type="text" id="bookSearch" placeholder="Title or description">
+              </div>
+              <div class="form-group">
+                <label>Tags (comma sep)</label>
+                <input type="text" id="bookTags" placeholder="fantasy,sci-fi">
+              </div>
+              <div class="form-group">
+                <label>Year After</label>
+                <input type="number" id="bookAfter" placeholder="e.g., 2000">
+              </div>
+              <div class="form-group">
+                <label>Sort</label>
+                <select id="bookSort">
+                  <option value="">Default</option>
+                  <option value="trending_score:desc">Trending</option>
+                  <option value="average_rating:desc">Rating</option>
+                  <option value="view_count:desc">Views</option>
+                  <option value="subscriber_count:desc">Subscribers</option>
+                  <option value="title:asc">Title A-Z</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="searchBooks()">Search</button>
+            </div>
+
+            <div id="booksResults" class="grid grid-3">
+              <div class="empty-state"><div class="icon">📚</div>Click Search to load books</div>
+            </div>
+          </div>
+
+          <!-- ===================== BOOK DETAIL PAGE ===================== -->
+          <div class="page" id="page-book-detail">
+            <h2 class="page-title">📄 Book Detail</h2>
+            <p class="page-subtitle">View book details and reviews</p>
+            
+            <div class="card">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Book ID</label>
+                  <input type="number" id="bookDetailId" placeholder="Enter book ID">
+                </div>
+                <button class="btn btn-primary" style="margin-top:22px" onclick="loadBookDetail()">Load</button>
+              </div>
+            </div>
+
+            <div id="bookDetailDisplay" class="card hidden">
+              <div id="bookDetailContent"></div>
+            </div>
+
+            <div id="bookReviewsSection" class="hidden mt-4">
+              <h3 class="mb-4">Reviews</h3>
+              <div id="bookReviewsList"></div>
+              
+              <div class="card mt-4">
+                <div class="card-title">Add Review</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Rating (1-5)</label>
+                    <select id="reviewRating">
+                      <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                      <option value="4">⭐⭐⭐⭐ (4)</option>
+                      <option value="3">⭐⭐⭐ (3)</option>
+                      <option value="2">⭐⭐ (2)</option>
+                      <option value="1">⭐ (1)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Comment (optional)</label>
+                  <textarea id="reviewComment" rows="2" placeholder="Your review"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="submitReview()">Submit Review</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== BOOK CRUD PAGE ===================== -->
+          <div class="page" id="page-book-crud">
+            <h2 class="page-title">✏️ Book CRUD</h2>
+            <p class="page-subtitle">Create, update, and delete books</p>
+            
+            <div class="tabs">
+              <button class="tab-btn active" onclick="showBookTab('create')">Create</button>
+              <button class="tab-btn" onclick="showBookTab('my')">My Books</button>
+              <button class="tab-btn" onclick="showBookTab('edit')">Edit</button>
+            </div>
+
+            <div class="tab-content active" id="bookTab-create">
+              <div class="card">
+                <div class="card-title">Create New Book</div>
+                <div class="card-subtitle">Requires: books:draft scope</div>
+                <div class="form-group">
+                  <label>Title *</label>
+                  <input type="text" id="createBookTitle" placeholder="Book title">
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Year</label>
+                    <input type="number" id="createBookYear" placeholder="e.g., 2024">
+                  </div>
+                  <div class="form-group">
+                    <label>Tags (comma sep)</label>
+                    <input type="text" id="createBookTags" placeholder="fantasy,adventure">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Description</label>
+                  <textarea id="createBookDesc" rows="3" placeholder="Book description"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Author IDs (comma sep)</label>
+                  <input type="text" id="createBookAuthors" placeholder="1,2,3">
+                </div>
+                <button class="btn btn-primary" onclick="handleCreateBook()">Create Book</button>
+              </div>
+            </div>
+
+            <div class="tab-content" id="bookTab-my">
+              <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                  <div class="card-title">My Books</div>
+                  <button class="btn btn-secondary btn-sm" onclick="loadMyBooks()">🔄 Refresh</button>
+                </div>
+                <div id="myBooksDisplay" class="text-muted">Login to view your books</div>
+              </div>
+            </div>
+
+            <div class="tab-content" id="bookTab-edit">
+              <div class="card">
+                <div class="card-title">Edit Book</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Book ID</label>
+                    <input type="number" id="editBookId" placeholder="Enter book ID">
+                  </div>
+                  <button class="btn btn-secondary" style="margin-top:22px" onclick="loadBookForEdit()">Load</button>
+                </div>
+                <div id="editBookForm" class="hidden mt-4">
+                  <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="editBookTitle">
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Year</label>
+                      <input type="number" id="editBookYear">
+                    </div>
+                    <div class="form-group">
+                      <label>Version (for locking)</label>
+                      <input type="number" id="editBookVersion" readonly>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="editBookDesc" rows="3"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label>Tags (comma sep)</label>
+                    <input type="text" id="editBookTags">
+                  </div>
+                  <div class="btn-group">
+                    <button class="btn btn-primary" onclick="handleUpdateBook()">Save Changes</button>
+                    <button class="btn btn-danger" onclick="handleDeleteBook()">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== AUTHORS PAGE ===================== -->
+          <div class="page" id="page-authors">
+            <h2 class="page-title">✍️ Authors</h2>
+            <p class="page-subtitle">Search and browse authors</p>
+            
+            <div class="search-bar">
+              <input type="text" id="authorSearch" placeholder="Search by name or email...">
+              <button class="btn btn-primary" onclick="searchAuthors()">Search</button>
+            </div>
+
+            <div id="authorsResults" class="grid grid-3">
+              <div class="empty-state"><div class="icon">✍️</div>Click Search to load authors</div>
+            </div>
+          </div>
+
+          <!-- ===================== AUTHOR CRUD PAGE ===================== -->
+          <div class="page" id="page-author-crud">
+            <h2 class="page-title">📝 Author CRUD</h2>
+            <p class="page-subtitle">Create and manage author profiles</p>
+            
+            <div class="tabs">
+              <button class="tab-btn active" onclick="showAuthorTab('create')">Create</button>
+              <button class="tab-btn" onclick="showAuthorTab('my')">My Authors</button>
+              <button class="tab-btn" onclick="showAuthorTab('edit')">Edit</button>
+            </div>
+
+            <div class="tab-content active" id="authorTab-create">
+              <div class="card">
+                <div class="card-title">Create Author Profile</div>
+                <div class="card-subtitle">Requires: authors:draft scope</div>
+                <div class="form-group">
+                  <label>Name *</label>
+                  <input type="text" id="createAuthorName" placeholder="Author name">
+                </div>
+                <div class="form-group">
+                  <label>Email</label>
+                  <input type="email" id="createAuthorEmail" placeholder="author@example.com">
+                </div>
+                <div class="form-group">
+                  <label>Bio</label>
+                  <textarea id="createAuthorBio" rows="3" placeholder="Author biography"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Linked User ID (optional UUID)</label>
+                  <input type="text" id="createAuthorUserId" placeholder="UUID of user account">
+                </div>
+                <button class="btn btn-primary" onclick="handleCreateAuthor()">Create Author</button>
+              </div>
+            </div>
+
+            <div class="tab-content" id="authorTab-my">
+              <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                  <div class="card-title">My Authors</div>
+                  <button class="btn btn-secondary btn-sm" onclick="loadMyAuthors()">🔄 Refresh</button>
+                </div>
+                <div id="myAuthorsDisplay" class="text-muted">Login to view your authors</div>
+              </div>
+            </div>
+
+            <div class="tab-content" id="authorTab-edit">
+              <div class="card">
+                <div class="card-title">Edit Author</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Author ID</label>
+                    <input type="number" id="editAuthorId" placeholder="Enter author ID">
+                  </div>
+                  <button class="btn btn-secondary" style="margin-top:22px" onclick="loadAuthorForEdit()">Load</button>
+                </div>
+                <div id="editAuthorForm" class="hidden mt-4">
+                  <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="editAuthorName">
+                  </div>
+                  <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="editAuthorEmail">
+                  </div>
+                  <div class="form-group">
+                    <label>Bio</label>
+                    <textarea id="editAuthorBio" rows="3"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label>Version</label>
+                    <input type="number" id="editAuthorVersion" readonly>
+                  </div>
+                  <div class="btn-group">
+                    <button class="btn btn-primary" onclick="handleUpdateAuthor()">Save Changes</button>
+                    <button class="btn btn-danger" onclick="handleDeleteAuthor()">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== COLLECTIONS PAGE ===================== -->
+          <div class="page" id="page-collections">
+            <h2 class="page-title">📚 Collections</h2>
+            <p class="page-subtitle">Browse and manage book collections</p>
+            
+            <div class="search-bar">
+              <input type="text" id="collectionSearch" placeholder="Search collections...">
+              <select id="collectionSort">
+                <option value="">Default</option>
+                <option value="trending_score:desc">Trending</option>
+                <option value="subscriber_count:desc">Subscribers</option>
+                <option value="view_count:desc">Views</option>
+              </select>
+              <button class="btn btn-primary" onclick="searchCollections()">Search</button>
+            </div>
+
+            <div id="collectionsResults" class="grid grid-3">
+              <div class="empty-state"><div class="icon">📚</div>Click Search to load collections</div>
+            </div>
+
+            <div class="card mt-4">
+              <div class="card-title">Create Collection</div>
+              <div class="card-subtitle">Requires: collections:create scope</div>
+              <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="createCollectionName" placeholder="Collection name">
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea id="createCollectionDesc" rows="2" placeholder="Description"></textarea>
+              </div>
+              <div class="form-group">
+                <label>Initial Book IDs (comma sep)</label>
+                <input type="text" id="createCollectionBooks" placeholder="1,2,3">
+              </div>
+              <button class="btn btn-primary" onclick="handleCreateCollection()">Create Collection</button>
+            </div>
+          </div>
+
+          <!-- ===================== JURY PAGE ===================== -->
+          <div class="page" id="page-jury">
+            <h2 class="page-title">⚖️ Jury Queue</h2>
+            <p class="page-subtitle">Vote on pending content (requires jury:view scope)</p>
+            
+            <div class="tabs">
+              <button class="tab-btn active" onclick="showJuryTab('authors')">Authors</button>
+              <button class="tab-btn" onclick="showJuryTab('books')">Books</button>
+              <button class="tab-btn" onclick="showJuryTab('collections')">Collections</button>
+            </div>
+
+            <div class="tab-content active" id="juryTab-authors">
+              <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                  <div class="card-title">Pending Authors</div>
+                  <button class="btn btn-secondary btn-sm" onclick="loadPendingAuthors()">🔄 Refresh</button>
+                </div>
+                <div id="pendingAuthorsDisplay" class="text-muted">Click Refresh to load</div>
+              </div>
+            </div>
+
+            <div class="tab-content" id="juryTab-books">
+              <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                  <div class="card-title">Pending Books</div>
+                  <button class="btn btn-secondary btn-sm" onclick="loadPendingBooks()">🔄 Refresh</button>
+                </div>
+                <div id="pendingBooksDisplay" class="text-muted">Click Refresh to load</div>
+              </div>
+            </div>
+
+            <div class="tab-content" id="juryTab-collections">
+              <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                  <div class="card-title">Pending Collections</div>
+                  <button class="btn btn-secondary btn-sm" onclick="loadPendingCollections()">🔄 Refresh</button>
+                </div>
+                <div id="pendingCollectionsDisplay" class="text-muted">Click Refresh to load</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== HISTORY PAGE ===================== -->
+          <div class="page" id="page-history">
+            <h2 class="page-title">🕐 Edit History</h2>
+            <p class="page-subtitle">View entity history and rollback changes</p>
+            
+            <div class="card">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Entity Type</label>
+                  <select id="historyEntityType">
+                    <option value="book">Book</option>
+                    <option value="author">Author</option>
+                    <option value="collection">Collection</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Entity ID</label>
+                  <input type="number" id="historyEntityId" placeholder="e.g., 1">
+                </div>
+                <button class="btn btn-primary" style="margin-top:22px" onclick="loadHistory()">Load History</button>
+              </div>
+            </div>
+
+            <div id="historyTimeline" class="mt-4"></div>
+
+            <div id="historyDetailSection" class="card hidden mt-4">
+              <div class="card-title">Version Detail</div>
+              <div id="historyDetailContent"></div>
+              <div class="mt-4">
+                <button class="btn btn-warning" onclick="handleRollback()">⏪ Rollback to This Version</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== UPLOADS PAGE ===================== -->
+          <div class="page" id="page-uploads">
+            <h2 class="page-title">📤 Media Upload</h2>
+            <p class="page-subtitle">Upload covers, avatars, and book files</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Book Cover Upload</div>
+                <div class="form-group">
+                  <label>Book ID</label>
+                  <input type="number" id="uploadBookCoverId" placeholder="Book ID">
+                </div>
+                <div class="form-group">
+                  <label>Image File</label>
+                  <input type="file" id="uploadBookCoverFile" accept="image/jpeg,image/png,image/webp">
+                </div>
+                <button class="btn btn-primary" onclick="handleBookCoverUpload()">Upload Cover</button>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Book File Upload</div>
+                <div class="form-group">
+                  <label>Book ID</label>
+                  <input type="number" id="uploadBookFileId" placeholder="Book ID">
+                </div>
+                <div class="form-group">
+                  <label>File (PDF/EPUB)</label>
+                  <input type="file" id="uploadBookFileFile" accept="application/pdf,application/epub+zip">
+                </div>
+                <button class="btn btn-primary" onclick="handleBookFileUpload()">Upload File</button>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <div class="card-title">Author Avatar Upload</div>
+              <div class="form-group">
+                <label>Author ID</label>
+                <input type="number" id="uploadAuthorAvatarId" placeholder="Author ID">
+              </div>
+              <div class="form-group">
+                <label>Image File</label>
+                <input type="file" id="uploadAuthorAvatarFile" accept="image/jpeg,image/png,image/webp">
+              </div>
+              <button class="btn btn-primary" onclick="handleAuthorAvatarUpload()">Upload Avatar</button>
+            </div>
+          </div>
+
+          <!-- ===================== HEALTH PAGE ===================== -->
+          <div class="page" id="page-health">
+            <h2 class="page-title">💓 Health Check</h2>
+            <p class="page-subtitle">Check service health status</p>
+            
+            <div class="grid grid-2">
+              <div class="card">
+                <div class="card-title">Library Service</div>
+                <div id="libraryHealthDisplay" class="text-muted">Click check to verify</div>
+                <button class="btn btn-secondary mt-4" onclick="checkLibraryHealth()">Check Health</button>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Auth Service</div>
+                <div id="authHealthDisplay" class="text-muted">Click check to verify</div>
+                <button class="btn btn-secondary mt-4" onclick="checkAuthHealth()">Check Health</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Log Panel -->
+        <div class="log-panel">
+          <div class="log-header">
+            <h3>📋 API Log</h3>
+            <button class="btn btn-secondary btn-sm" id="clearLogBtn">Clear</button>
+          </div>
+          <div class="log-content" id="logContent"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/handlers.js"></script>
 </body>
 </html>

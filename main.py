@@ -122,26 +122,15 @@ async def readiness_check():
         errors.append(f"Redis: {str(e)}")
         details["redis"] = str(e)
 
-    # 3. Check Auth Service
+    # 3. Check Auth Service (warning only - don't fail startup on auth service issues)
     auth_status = await auth_service_client.readiness_check()
     if auth_status["healthy"]:
         details["auth_service"] = "ok"
     else:
-        errors.append(f"Auth Service: {auth_status['error']}")
+        # Auth service issues are warnings, not errors
+        # This allows the app to start even if auth service is temporarily slow/unreachable
+        warnings.append(f"Auth Service: {auth_status['error']}")
         details["auth_service"] = auth_status
-
-    # 4. Check S3 (warning only if unconfigured, error only if misconfigured/unreachable)
-    s3_status = await check_s3_health()
-    if s3_status["healthy"]:
-        details["s3"] = "ok"
-    elif s3_status["status"] == "unconfigured":
-        # S3 not configured is a warning, not an error
-        warnings.append(f"S3: {s3_status['error']}")
-        details["s3"] = s3_status
-    else:
-        # S3 configured but unhealthy is an error
-        errors.append(f"S3: {s3_status['error']}")
-        details["s3"] = s3_status
 
     if errors:
         return JSONResponse(

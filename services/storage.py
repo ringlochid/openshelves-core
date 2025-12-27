@@ -24,13 +24,17 @@ async def get_s3_client():
         raise HTTPException(
             status_code=500, detail="S3 media bucket is not configured on the server"
         )
-    return boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        endpoint_url=settings.S3_ENDPOINT_URL,
-    )
+    # Build client kwargs - supports both explicit credentials (local dev) and IAM roles (AWS)
+    client_kwargs = {
+        "region_name": settings.AWS_REGION,
+    }
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+        client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+    if settings.S3_ENDPOINT_URL:
+        client_kwargs["endpoint_url"] = settings.S3_ENDPOINT_URL
+
+    return boto3.client("s3", **client_kwargs)
 
 
 async def check_s3_health() -> dict:
@@ -52,22 +56,23 @@ async def check_s3_health() -> dict:
             "error": "S3_BUCKET_NAME not configured",
         }
 
-    if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
-        return {
-            "healthy": False,
-            "status": "unconfigured",
-            "bucket": settings.S3_BUCKET_NAME,
-            "error": "AWS credentials not configured",
-        }
+    # Build client kwargs - only include explicit credentials if provided
+    # When running on AWS (App Runner/ECS), IAM roles provide credentials automatically
+    client_kwargs = {
+        "region_name": settings.AWS_REGION,
+    }
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+        client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+    if settings.S3_ENDPOINT_URL:
+        client_kwargs["endpoint_url"] = settings.S3_ENDPOINT_URL
 
     try:
-        client = boto3.client(
-            "s3",
-            region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            endpoint_url=settings.S3_ENDPOINT_URL,
-        )
+        from botocore.config import Config
+
+        # Set aggressive timeouts to avoid hanging when network is unreachable
+        config = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1})
+        client = boto3.client("s3", config=config, **client_kwargs)
         # head_bucket checks if bucket exists and is accessible
         client.head_bucket(Bucket=settings.S3_BUCKET_NAME)
         return {
