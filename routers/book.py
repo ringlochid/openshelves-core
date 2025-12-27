@@ -1345,7 +1345,7 @@ async def approve_book(
     except Exception as e:
         logger.warning("Failed to adjust trust for book approval: %s", e)
 
-    # Invalidate caches
+    # Invalidate caches (invalidate_book now handles jury:books internally)
     author_ids = [author.id for author in book.authors]
     await cache.invalidate_book(book_id, r, author_ids=author_ids)
 

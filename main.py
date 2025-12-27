@@ -4,6 +4,7 @@ import logging
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from routers import author, jury, book, collection, upload, history
@@ -79,9 +80,14 @@ async def health_check():
 @app.get("/test", tags=["Test"], response_class=FileResponse)
 async def serve_test_frontend():
     """
-    Serve the Auth Tester frontend for interactive API testing.
+    Serve the test frontend for interactive API testing.
     """
     return FileResponse("frontend-test/index.html", media_type="text/html")
+
+
+# Mount static files for the test frontend (CSS, JS)
+# These files are served at /test-static/* to avoid conflicts with API routes
+app.mount("/test-static", StaticFiles(directory="frontend-test"), name="test-static")
 
 
 @app.get("/ready", tags=["Health"])

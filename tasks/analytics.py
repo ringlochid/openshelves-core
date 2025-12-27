@@ -1,5 +1,6 @@
 """Analytics/statistics tasks."""
 
+from sqlalchemy.orm.strategy_options import selectinload
 import asyncio
 import math
 from datetime import datetime, timezone
@@ -113,7 +114,10 @@ def calculate_trending_scores() -> dict:
 
                 # Calculate for books
                 result = await db.execute(
-                    select(Book).where(
+                    select(Book)
+                    .options(selectinload(Book.reviews))
+                    .options(selectinload(Book.authors))
+                    .where(
                         Book.is_public == True,
                         Book.is_deleted == False,
                     )
@@ -135,7 +139,9 @@ def calculate_trending_scores() -> dict:
 
                 # Calculate for collections
                 result = await db.execute(
-                    select(Collection).where(
+                    select(Collection)
+                    .options(selectinload(Collection.books))
+                    .where(
                         Collection.is_public == True,
                         Collection.is_deleted == False,
                     )

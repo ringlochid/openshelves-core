@@ -16,6 +16,8 @@ from uuid import UUID
 import boto3
 from PIL import Image, ImageOps, UnidentifiedImageError
 from botocore.exceptions import ClientError
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from helpers.edit_history import record_update, serialize_entity
 from celery_app import app
@@ -291,15 +293,33 @@ async def _update_image_key_with_history(
 
     try:
         async with WorkerSession() as session:
-            # Get entity based on type
+            # Get entity based on type - eagerly load relationships for serialization
             if entity_type == "author":
-                entity = await session.get(Author, entity_id)
+                stmt = (
+                    select(Author)
+                    .where(Author.id == entity_id)
+                    .options(selectinload(Author.books))
+                )
+                result = await session.execute(stmt)
+                entity = result.scalar_one_or_none()
                 field_name = "avatar_key"
             elif entity_type == "book":
-                entity = await session.get(Book, entity_id)
+                stmt = (
+                    select(Book)
+                    .where(Book.id == entity_id)
+                    .options(selectinload(Book.authors))
+                )
+                result = await session.execute(stmt)
+                entity = result.scalar_one_or_none()
                 field_name = "cover_key"
             elif entity_type == "collection":
-                entity = await session.get(Collection, entity_id)
+                stmt = (
+                    select(Collection)
+                    .where(Collection.id == entity_id)
+                    .options(selectinload(Collection.books))
+                )
+                result = await session.execute(stmt)
+                entity = result.scalar_one_or_none()
                 field_name = "cover_key"
             else:
                 raise MediaProcessingError(f"Unknown entity type: {entity_type}")
@@ -373,7 +393,14 @@ async def _update_book_file_with_history(
 
     try:
         async with WorkerSession() as session:
-            book = await session.get(Book, book_id)
+            # Eagerly load authors relationship for serialize_entity
+            stmt = (
+                select(Book)
+                .where(Book.id == book_id)
+                .options(selectinload(Book.authors))
+            )
+            result = await session.execute(stmt)
+            book = result.scalar_one_or_none()
             if not book:
                 return None
 

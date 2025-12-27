@@ -341,18 +341,18 @@ async def _invalidate_entity_caches(
 
     if entity_type == "author":
         # Get book IDs for cascading invalidation
-        # Note: invalidate_author already bumps authors:list and jury:authors internally
+        # invalidate_author handles authors:list and jury:authors internally
         book_ids = [book.id for book in entity.books] if entity.books else []
         await cache.invalidate_author(entity_id, r, book_ids=book_ids)
 
     elif entity_type == "book":
         # Get author IDs for cascading invalidation
-        # Note: invalidate_book already bumps books:list internally, but not jury:books
+        # invalidate_book handles books:list and jury:books internally
         author_ids = [author.id for author in entity.authors] if entity.authors else []
         await cache.invalidate_book(entity_id, r, author_ids=author_ids)
-        await cache.bump_cache_version("jury:books", r)
 
     elif entity_type == "collection":
+        # invalidate_collection handles collections:list and jury:collections internally
         await cache.invalidate_collection(entity_id, r)
 
 

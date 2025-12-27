@@ -311,7 +311,7 @@ async def invalidate_book(
     Invalidate book cache and all lists containing books.
     Also invalidates related authors and reviews (cascading invalidation).
 
-    Bumps version to invalidate: GET /books, GET /authors/{id}/books
+    Bumps version to invalidate: GET /books, GET /jury/books, GET /authors/{id}/books
 
     Args:
         book_id: ID of book to invalidate
@@ -323,8 +323,9 @@ async def invalidate_book(
     # Invalidate book entity
     await invalidate_entity("book", book_id, r)
 
-    # Invalidate book lists
+    # Invalidate book lists and jury queue
     await bump_cache_version("books:list", r)
+    await bump_cache_version("jury:books", r)
 
     # Cascade: invalidate related authors (author detail shows book list)
     # Note: author_ids should always be provided from calling context to avoid
@@ -355,10 +356,11 @@ async def get_collection(collection_id: int, r: Redis | None = None) -> dict | N
 
 
 async def invalidate_collection(collection_id: int, r: Redis | None = None):
-    """Invalidate collection cache and lists."""
+    """Invalidate collection cache and lists (including jury queue)."""
     r = r or await init_redis()
     await invalidate_entity("collection", collection_id, r)
     await bump_cache_version("collections:list", r)
+    await bump_cache_version("jury:collections", r)
 
 
 # ========================================

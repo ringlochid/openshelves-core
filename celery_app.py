@@ -30,11 +30,6 @@ app.conf.update(
             "task": "tasks.cleanup.cleanup_soft_deleted_content",
             "schedule": crontab(hour="2", minute="0"),
         },
-        # Cleanup expired uploads hourly
-        "cleanup-expired-uploads-hourly": {
-            "task": "tasks.cleanup.cleanup_expired_uploads",
-            "schedule": crontab(minute="0"),
-        },
         "sync-view-counts-hourly": {
             "task": "tasks.analytics.sync_view_counts",
             "schedule": crontab(minute="15"),  # every hour 15 min

@@ -895,17 +895,14 @@ async function handleBookCoverUpload() {
     if (!bookId || !file) return toast('Select book ID and file', 'error');
 
     try {
-        // Get book version
-        const book = await libraryApi.getBook(bookId);
-
         // Presign
         const presign = await libraryApi.presignBookCover(bookId, file.type);
 
         // Upload to S3
         await uploadToS3(presign, file);
 
-        // Commit
-        await libraryApi.commitBookCover(bookId, presign.key, book.version);
+        // Commit with upload_id and s3_key
+        await libraryApi.commitBookCover(bookId, presign.upload_id, presign.s3_key);
 
         toast('Cover uploaded! Processing...', 'success');
     } catch (e) {
@@ -919,13 +916,15 @@ async function handleBookFileUpload() {
 
     if (!bookId || !file) return toast('Select book ID and file', 'error');
 
-    const fileFormat = file.type === 'application/pdf' ? 'pdf' : 'epub';
-
     try {
-        const book = await libraryApi.getBook(bookId);
-        const presign = await libraryApi.presignBookFile(bookId, file.type, fileFormat);
+        // Presign with filename
+        const presign = await libraryApi.presignBookFile(bookId, file.type, file.name);
+
+        // Upload to S3
         await uploadToS3(presign, file);
-        await libraryApi.commitBookFile(bookId, presign.key, book.version);
+
+        // Commit with upload_id and s3_key
+        await libraryApi.commitBookFile(bookId, presign.upload_id, presign.s3_key);
 
         toast('File uploaded! Processing...', 'success');
     } catch (e) {
@@ -940,10 +939,14 @@ async function handleAuthorAvatarUpload() {
     if (!authorId || !file) return toast('Select author ID and file', 'error');
 
     try {
-        const author = await libraryApi.getAuthor(authorId);
+        // Presign
         const presign = await libraryApi.presignAuthorAvatar(authorId, file.type);
+
+        // Upload to S3
         await uploadToS3(presign, file);
-        await libraryApi.commitAuthorAvatar(authorId, presign.key, author.version);
+
+        // Commit with upload_id and s3_key
+        await libraryApi.commitAuthorAvatar(authorId, presign.upload_id, presign.s3_key);
 
         toast('Avatar uploaded! Processing...', 'success');
     } catch (e) {

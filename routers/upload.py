@@ -314,6 +314,7 @@ async def presign_book_file(
             Key=s3_key,
             Fields={"Content-Type": payload.content_type},
             Conditions=[
+                {"Content-Type": payload.content_type},
                 ["content-length-range", 1, settings.BOOK_FILE_MAX_BYTES],
             ],
             ExpiresIn=settings.UPLOAD_EXPIRES_SECONDS,

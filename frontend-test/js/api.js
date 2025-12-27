@@ -90,12 +90,13 @@ async function apiRequest(baseUrl, method, path, body = null, useAuth = true) {
     const response = await fetch(url, options);
     const duration = Date.now() - start;
 
+    // Handle 204 No Content and empty responses gracefully
     let data;
-    const ct = response.headers.get('content-type');
-    if (ct && ct.includes('application/json')) {
-      data = await response.json();
-    } else {
-      data = await response.text();
+    const text = await response.text();
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
     }
 
     if (!response.ok) {
@@ -162,7 +163,7 @@ const authApi = {
   async getMe() { return apiRequest(CONFIG.AUTH_URL, 'GET', '/user/me'); },
   async updateProfile(data) { return apiRequest(CONFIG.AUTH_URL, 'PATCH', '/user/me/update', data); },
   async getProfile(userId) { return apiRequest(CONFIG.AUTH_URL, 'GET', `/user/profile?user_id=${userId}`, null, false); },
-  async presignAvatar(contentType) { return apiRequest(CONFIG.AUTH_URL, 'POST', '/auth/avatar/presign', { content_type: contentType }); },
+  async presignAvatar(contentType) { return apiRequest(CONFIG.AUTH_URL, 'POST', '/auth/avatar/upload', { content_type: contentType }); },
   async commitAvatar(key) { return apiRequest(CONFIG.AUTH_URL, 'POST', '/auth/avatar/commit', { key }); },
   async submitReport(target, reason, category) { return apiRequest(CONFIG.AUTH_URL, 'POST', '/reports', { target, reason, category }); },
   async listReports(status = null, limit = 50) {
@@ -254,12 +255,12 @@ const libraryApi = {
   async getHistoryDetail(historyId) { return apiRequest(CONFIG.LIBRARY_URL, 'GET', `/history/${historyId}`, null, !!state.accessToken); },
 
   // Uploads
-  async presignBookCover(bookId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/cover/presign`, { content_type: contentType }); },
-  async commitBookCover(bookId, key, version) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/cover/commit`, { key, version }); },
-  async presignBookFile(bookId, contentType, fileFormat) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/file/presign`, { content_type: contentType, file_format: fileFormat }); },
-  async commitBookFile(bookId, key, version) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/file/commit`, { key, version }); },
-  async presignAuthorAvatar(authorId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar/presign`, { content_type: contentType }); },
-  async commitAuthorAvatar(authorId, key, version) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar/commit`, { key, version }); },
+  async presignBookCover(bookId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/cover`, { content_type: contentType }); },
+  async commitBookCover(bookId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/cover/commit`, { upload_id: uploadId, s3_key: s3Key }); },
+  async presignBookFile(bookId, contentType, filename) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/file`, { content_type: contentType, filename: filename }); },
+  async commitBookFile(bookId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/file/commit`, { upload_id: uploadId, s3_key: s3Key }); },
+  async presignAuthorAvatar(authorId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar`, { content_type: contentType }); },
+  async commitAuthorAvatar(authorId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar/commit`, { upload_id: uploadId, s3_key: s3Key }); },
 
   async health() { return apiRequest(CONFIG.LIBRARY_URL, 'GET', '/ready', null, false); },
 };

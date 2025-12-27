@@ -3,6 +3,7 @@ Jury voting router for democratic content approval.
 Implements community voting system for PENDING content.
 """
 
+from schemas.book import BookListItem
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from cache import get_redis
 from dependencies.auth import get_current_user, require_scope
 from models import Author, Book, Collection, CollectionBook, ContentStatus
 from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
-from schemas.book import BookDetail, BookListRead, BookListResponse
+from schemas.book import BookDetail, BookListItem, BookListRead, BookListResponse
 from schemas.collection import CollectionRead, CollectionDetail, CollectionListResponse
 from schemas.jury import JuryVoteResponse, JuryVoteStatus
 from helpers.jury import (
@@ -451,7 +452,7 @@ async def list_pending_books(
     books = result.scalars().all()
 
     response = BookListResponse(
-        items=[BookListRead.model_validate(book) for book in books],
+        items=[BookListItem.model_validate(book) for book in books],
         total=total,
         page=page,
         per_page=per_page,
