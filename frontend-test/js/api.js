@@ -1,5 +1,5 @@
 /**
- * API Client for Library Service Test Frontend
+ * API Client for OpenShelves Test Frontend
  * Handles authentication, API calls, and logging
  */
 
@@ -174,7 +174,7 @@ const authApi = {
 };
 
 // ============================================
-// Library Service API
+// OpenShelves API
 // ============================================
 const libraryApi = {
   // Books

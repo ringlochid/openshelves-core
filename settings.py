@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     SOFT_DELETE_WINDOW_HOURS: int = 24  # Recovery window for soft-deleted content
 
     # API Configuration
-    API_TITLE: str = "Library Service API"
+    API_TITLE: str = "OpenShelves API"
     API_VERSION: str = "1.0.0"
     API_DESCRIPTION: str = "Wiki-style library management with RBAC and trust scoring"
 

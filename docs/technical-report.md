@@ -1,6 +1,6 @@
-# Library Application Technical Report
+# OpenShelves Technical Report
 
-> Comprehensive documentation covering the Library Service and Auth Service architecture, endpoints, and workflows.
+> Comprehensive documentation covering the OpenShelves platform and Auth Service architecture, endpoints, and workflows.
 
 ---
 
@@ -8,61 +8,87 @@
 
 1. [System Overview](#system-overview)
 2. [Part A: Database Design](#part-a-database-design)
-3. [Part B: Library Service Endpoints](#part-b-library-service-endpoints)
+3. [Part B: OpenShelves Endpoints](#part-b-openshelves-endpoints)
 4. [Part C: Auth Service Reference](#part-c-auth-service-reference)
 5. [Part D: Background Tasks](#part-d-background-tasks)
+6. [Part E: Caching Strategy](#part-e-caching-strategy)
+7. [Part F: Configuration Reference](#part-f-configuration-reference)
+
 
 ---
 
 ## System Overview
 
-The Library Application is a microservices-based platform consisting of:
+The OpenShelves platform is a microservices-based system consisting of:
 
 | Service | Purpose | Technology |
 |---------|---------|------------|
-| **Library Service** | Content management (books, authors, reviews, collections) | FastAPI + PostgreSQL |
-| **Auth Service** | Authentication, authorization, trust scoring | FastAPI + PostgreSQL |
-| **Workers** | Background processing (media, analytics, cleanup) | Celery + Redis |
+| **OpenShelves (Core)** | Content management (books, authors, reviews, collections) | FastAPI + PostgreSQL + Redis (App Runner) |
+| **Auth Service** | Authentication, authorization, trust scoring | FastAPI + PostgreSQL + Redis (App Runner) |
+| **Workers** | Background processing (media, analytics, cleanup) | Celery (Redis Broker/Backend) + ClamAV (ECS Fargate) |
+
 
 ### Architecture Diagram
 
 ```mermaid
 graph TB
-    subgraph "Frontend"
+    subgraph "Public Internet"
         Client[Web Client]
+        VPN[Admin VPN]
     end
     
-    subgraph "API Gateway"
-        AppRunner[AWS App Runner]
+    subgraph "AWS Cloud (VPC)"
+        subgraph "Public Subnet"
+            RDS[("RDS PostgreSQL")]
+            NAT["NAT Gateway (FCK-NAT EC2)"]
+        end
+        
+        subgraph "Private Subnet - Service Layer"
+            AppRunner[AWS App Runner Service]
+            Redis[("ElastiCache Valkey")]
+        end
+        
+        subgraph "Private Subnet - Workers"
+            Fargate[ECS Fargate Cluster]
+            CeleryWorker[Celery Worker Container]
+            CeleryBeat[Celery Beat Container]
+            ClamAV[ClamAV Sidecar]
+        end
+        
+        S3[(S3 Buckets)]
     end
     
-    subgraph "Services"
-        Library[Library Service]
-        Auth[Auth Service]
-    end
+    %% Traffic Flow
+    Client --HTTPS--> AppRunner
+    VPN --Admin Access--> RDS
     
-    subgraph "Workers"
-        MediaWorker[Media Worker]
-        AnalyticsWorker[Analytics Worker]
-    end
+    %% Service Communications
+    AppRunner --Read/Write--> RDS
+    AppRunner --Cache--> Redis
+    AppRunner --Task Dispatch--> Redis
     
-    subgraph "Data"
-        PG[(PostgreSQL)]
-        Redis[(Redis)]
-        S3[(S3)]
-    end
+    %% Worker Communications
+    CeleryWorker --Task Pop--> Redis
+    CeleryWorker --Process--> S3
+    CeleryWorker --Scan (TCP)--> ClamAV
+    CeleryWorker --Update DB--> RDS
     
-    Client --> AppRunner
-    AppRunner --> Library
-    AppRunner --> Auth
-    Library --> Auth
-    Library --> PG
-    Library --> Redis
-    Auth --> PG
-    Auth --> Redis
-    MediaWorker --> S3
-    MediaWorker --> PG
+    %% External Access via NAT
+    Fargate --Outbound--> NAT
+    AppRunner --Outbound--> NAT
+
 ```
+
+### Deployment Topology & Rationale
+
+| Component | Implementation | Design Rationale |
+|-----------|----------------|------------------|
+| **Service Layer** | **AWS App Runner** | Stateless, auto-scaling container service perfect for handling sporadic HTTP traffic. Simplifies infrastructure management compared to full K8s. |
+| **Background Workers** | **ECS Fargate** | Decoupled from HTTP layer to handle heavy tasks (image processing, virus scanning) without blocking API requests. Supports "sidecar" pattern for ClamAV. |
+| **Database** | **RDS PostgreSQL** (Public Subnet) | **Strategic Exception**: Placed in Public Subnet to allow direct admin access via VPN/restricted IPs for debugging and maintenance. Access is strictly controlled via Security Groups (Service + VPN IPs only). |
+| **NAT** | **FCK-NAT (EC2)** | Cost-effective alternative to AWS NAT Gateway for enabling outbound internet access (e.g., SMTP, external API calls) from private subnets. |
+| **Storage** | **S3** | Presigned URL workflow offloads bandwidth from servers. Policies restrict direct public access, ensuring all content flows through application controls. |
+
 
 ---
 
@@ -164,6 +190,8 @@ class EditAction(str, PyEnum):
 | `search_tsv` | TSVECTOR | Full-text search |
 
 **Design Rationale**: Collections are ordered lists of books with position tracking via `CollectionBook.position`.
+> **Constraint**: Maximum **100 books** per collection to ensure performance of bulk fetch operations.
+
 
 ### Social Features
 
@@ -193,7 +221,7 @@ class EditHistory:
 
 ---
 
-## Part B: Library Service Endpoints
+## Part B: OpenShelves Endpoints
 
 ### Books Router (`routers/book.py`)
 
@@ -268,10 +296,11 @@ class EditHistory:
 
 #### Social Endpoints
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/authors/{id}/follow` | Follow author |
-| DELETE | `/authors/{id}/follow` | Unfollow author |
+| Method | Endpoint | Purpose | Note |
+|--------|----------|---------|------|
+| POST | `/authors/{id}/follow` | Follow author | No trust reward (Anti-abuse) |
+| DELETE | `/authors/{id}/follow` | Unfollow author | - |
+
 
 ---
 
@@ -403,11 +432,24 @@ The jury system enables democratic content approval.
 2. Dispatch Celery task for processing
 3. Return success (processing is async)
 
+**Design Rationale**: The Two-Step Upload (Presign → Commit) Pattern is used to:
+- **Offload Traffic**: Large binary files go directly to S3, bypassing the API server to save bandwidth and CPU.
+- **Ensure Consistency**: The 'Commit' step allows the API to validate the upload success and trigger async processing (Celery) while keeping the database record in sync.
+- **Security**: Pre-signed URLs have strict expiry and content-max-length constraints.
+
+
 ---
 
 ## Part C: Auth Service Reference
 
+> **Architectural Note**: The Auth Service is a standalone microservice. The Library Service treats it as the "Source of Truth" for user identity and roles via JWT validation.
+> **Integration Status**:
+> - **RBAC**: Full (Scopes enforced)
+> - **Trust Score**: Partial (Rewards enabled, Social actions disabled)
+> - **Reputation**: Roadmap (Currently calculated but not gating features)
+
 ### Main Application (`main.py`)
+
 
 **Location**: [main.py](file:///root/apps/fastapi-apps/library-app-book-author-review-service/DevNotes/AuthUserServiceCopyForReference_deleteoncewired/app/main.py)
 
@@ -591,12 +633,13 @@ The jury system enables democratic content approval.
 **Workflow**:
 1. Download original from S3 temp location
 2. Validate image format (JPEG, PNG, WebP, AVIF)
-3. Optional ClamAV virus scan
+3. **Stream to ClamAV** (TCP 3310 on sidecar) for virus scan
 4. Resize to 512, 256, 128 pixels (square)
 5. Convert to WebP format
 6. Upload all variants to final S3 location
 7. Update entity's `avatar_key` with edit history
 8. Delete temp file
+
 
 **Output Sizes**: 512×512, 256×256, 128×128 (WebP)
 
@@ -708,4 +751,79 @@ All endpoints use token bucket rate limiting via Redis:
 
 ---
 
-*Generated: 2025-12-27*
+
+---
+
+## Part E: Caching Strategy
+
+The service uses **Redis** for multilayer caching to ensure high performance and low database load.
+
+### 1. Entity Caching
+**Keys**: `author:{id}`, `book:{id}`, `collection:{id}`, `reviews:{book_id}`
+**TTL**: 5 minutes (300s)
+
+| Endpoint | Cache Behavior | Invalidation Trigger |
+|----------|----------------|----------------------|
+| `GET /books/{id}` | Read-through cache | Update/Delete Book |
+| `GET /authors/{id}` | Read-through cache | Update/Delete Author |
+| `GET /collections/{id}` | Read-through cache | Update/Delete Collection |
+| `GET /books/{id}/reviews` | Read-through cache (list) | New Review, Vote, Update/Delete Review |
+
+### 2. List Caching (Versioning)
+**Keys**: `{namespace}:v{version}:{hash}`
+**Strategy**: "Namespace Versioning" is used for efficient bulk invalidation. Instead of finding all 10,000 cached pages of book search results, we simply increment the `cache:version:books:list` counter.
+
+| List Namespace | Invalidation Trigger |
+|----------------|----------------------|
+| `authors:list` | Any Author Create/Update/Delete |
+| `books:list` | Any Book Create/Update/Delete |
+| `collections:list` | Any Collection Create/Update/Delete |
+| `jury:authors` | Any Author status change |
+| `jury:books` | Any Book status change |
+| `jury:collections` | Any Collection status change |
+
+### 3. Cascading Invalidation
+The system enforces strict consistency via cascading deletes.
+*   **Update Author** → Invalidates `author:{id}` + `authors:list` + **Related Books** (Book details show author info).
+*   **Update Book** → Invalidates `book:{id}` + `books:list` + **Related Authors** + **Book Reviews**.
+
+### 4. Specialized Caches
+| Feature | Key Pattern | TTL | Purpose |
+|---------|-------------|-----|---------|
+| **View Tracking** | `views:{type}:{id}` | N/A | HyperLogLog for unique view counts (approximate). |
+| **Token Blacklist** | `blacklist:access:{jti}` | Token Lifetime | Blocks revoked JWTs (shared with Auth Service). |
+| **Rate Limiting** | `rl:{prefix}:{ip}` | Bucket Refill | Token bucket algorithm state. |
+| **Upload Claims** | `upload_claim:{uid}:{id}` | 10 mins | Transient state for validating presigned uploads. |
+
+---
+
+## Part F: Configuration Reference
+
+Default settings from `settings.py`.
+
+### 1. Rate Limiting (Token Bucket)
+| Tier | Capacity | Refill Rate | Scope |
+|------|----------|-------------|-------|
+| **READ** | 50 | 50 / 2 min | GET requests (generous) |
+| **WRITE** | 30 | 30 / 1 hour | POST/PUT/PATCH (moderate) |
+| **SENSITIVE** | 10 | 10 / 1 hour | Create content, Jury voting |
+| **ANON** | 20 | 20 / 3 min | Unauthenticated endpoints |
+| **UPLOAD** | 10 | 10 / 1 hour | Presigned URL requests |
+
+### 2. Media Limits
+| Media Type | Max Size | Allowed Formats | Dimensions (Px) |
+|------------|----------|-----------------|-----------------|
+| **Cover** | 10 MB | JPEG, PNG, WEBP, AVIF | 1800x2700, 1200x1800, 600x900 |
+| **Avatar** | 10 MB | JPEG, PNG, WEBP, AVIF | 512, 256, 128 (Square) |
+| **Book File** | 100 MB | PDF, EPUB | N/A |
+
+### 3. System Defaults
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SOFT_DELETE_WINDOW_HOURS` | 24 | Time before soft-deleted items are hard purged. |
+| `PRESIGNED_URL_EXPIRY` | 600s | Validity window for S3 upload URLs. |
+| `DEFAULT_CACHE_TTL` | 300s | Standard cache lifetime. |
+| `AUTH_SERVICE_TIMEOUT` | 10s | Timeout for RBAC/Trust calls to Auth Service. |
+
+*Generated: 2025-12-28*
+

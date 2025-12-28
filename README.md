@@ -1,6 +1,39 @@
-# Library Service (FastAPI + PostgreSQL + Redis + Celery)
+# OpenShelves (formerly Library Service)
+
+> 📘 **Technical Report**: [View Full Architecture & Design](docs/technical-report.md)
 
 Production-grade wiki-style content platform with RBAC, trust scoring, jury-based governance, and full media upload pipeline.
+
+## 🚀 Live Demo & Testing
+
+**Public Test Environment**: [https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com/test](https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com/test)
+
+> 📧 **Bug Reports & Suggestions**: Please email [admin@ringlochid.me](mailto:admin@ringlochid.me)
+
+This interactive test console allows you to explore the full feature set of OpenShelves without setting up a local environment.
+
+### Testable Features
+*   **Authentication**: Register, Login, Refresh Tokens, and Session Management.
+*   **Content Management**: Create, Edit, and Delete Authors, Books, and Collections.
+*   **Media Pipeline**: Upload Avatars and Covers using the S3 Presigned URL workflow.
+*   **Governance**: Participate in the Jury System to vote on pending content.
+*   **Search**: Full-text search across all content types.
+
+### Public Testing Workflow
+1.  **Register a User**: Go to the **Auth** tab and create a new account.
+2.  **Create Content**:
+    *   Navigate to **Authors** or **Books**, select the **CRUD** tab, and create a draft.
+    *   Note: New content starts in `pending` status.
+3.  **Upload Media**:
+    *   Go to **Media Upload**.
+    *   Use the ID of your created content to upload a cover or avatar.
+    *   The system will automatically process (resize/scan) the image in the background.
+4.  **Jury Voting**:
+    *   Go to **Jury Queue**.
+    *   You (or another user) can view the pending content and cast an "Approve" vote.
+    *   Once approved, the content becomes visible in the public **Browse** lists.
+
+---
 
 ## Features
 
@@ -18,15 +51,15 @@ Production-grade wiki-style content platform with RBAC, trust scoring, jury-base
 
 | Component | Technology |
 |-----------|------------|
-| API | FastAPI + Uvicorn |
-| Database | PostgreSQL + SQLAlchemy 2.x (async) |
-| Cache/Broker | Redis |
-| Background Jobs | Celery |
-| Media Storage | AWS S3 |
-| Virus Scanning | ClamAV (optional) |
-| Container | Docker Compose |
+| **API** | FastAPI + Uvicorn |
+| **Database** | PostgreSQL + SQLAlchemy 2.x (async) |
+| **Cache/Broker** | Redis |
+| **Background Jobs** | Celery (Redis Broker/Backend) |
+| **Media Storage** | AWS S3 |
+| **Virus Scanning** | ClamAV (optional) |
+| **Container** | Docker Compose |
 
-## Quick Start
+## Quick Start (Local Development)
 
 ```bash
 # 1. Copy environment template
@@ -39,140 +72,39 @@ docker compose up --build
 # 3. Apply database migrations
 docker compose exec app alembic upgrade head
 
-# 4. Run tests (251 tests)
+# 4. Run tests
 docker compose exec app pytest tests/ -v
 
-# 5. API available at http://localhost:8000/docs
+# 5. Access documentation
+# API Docs: http://localhost:8000/docs
+# Frontend Tester: http://localhost:8000/test
 ```
 
-## API Endpoints
+## API Endpoints Overview
 
-### Authors (`/authors`)
-| Method | Endpoint | Description | Scope |
-|--------|----------|-------------|-------|
-| GET | `/authors` | List approved authors | Public |
-| GET | `/authors/me` | My created authors | Authenticated |
-| GET | `/authors/{id}` | Author detail | Public |
-| GET | `/authors/{id}/books` | Author's books | Public |
-| POST | `/authors` | Create author | `authors:draft` |
-| PUT | `/authors/{id}` | Replace author | Owner/Wiki |
-| PATCH | `/authors/{id}` | Update author | Owner/Wiki |
-| POST | `/authors/{id}/rollback` | Version rollback | Owner/Wiki |
-| DELETE | `/authors/{id}/own` | Soft delete own | `authors:delete_own` |
-| DELETE | `/authors/{id}` | Takedown | `content:takedown` |
-| POST | `/authors/{id}/recover` | Recover deleted | `jury:override` |
-| POST | `/authors/{id}/follow` | Follow author | Authenticated |
-| DELETE | `/authors/{id}/follow` | Unfollow | Authenticated |
+### Core Resources
+*   **Authors** (`/authors`): Profiles, bibliography, following.
+*   **Books** (`/books`): Details, reviews, subscribing.
+*   **Collections** (`/collections`): User-curated book lists.
 
-### Books (`/books`)
-| Method | Endpoint | Description | Scope |
-|--------|----------|-------------|-------|
-| GET | `/books` | List with FTS/trigram search | Public |
-| GET | `/books/me` | My created books | Authenticated |
-| GET | `/books/{id}` | Book detail | Public |
-| GET | `/books/{id}/reviews` | Book reviews | Public |
-| POST | `/books` | Create book | `books:draft` |
-| PUT | `/books/{id}` | Replace book | Owner/Wiki |
-| PATCH | `/books/{id}` | Update book | Owner/Wiki |
-| POST | `/books/{id}/rollback` | Version rollback | Owner/Wiki |
-| DELETE | `/books/{id}/own` | Soft delete own | `books:delete_own` |
-| DELETE | `/books/{id}` | Takedown | `content:takedown` |
-| POST | `/books/{id}/recover` | Recover deleted | `jury:override` |
-| POST | `/books/{id}/approve` | Curator approve | `jury:override` |
-| POST | `/books/{id}/reject` | Curator reject | `jury:override` |
-| POST | `/books/{id}/reviews` | Create review | Authenticated |
-| POST | `/books/{id}/subscribe` | Subscribe | Authenticated |
-| DELETE | `/books/{id}/subscribe` | Unsubscribe | Authenticated |
+### Governance
+*   **Jury** (`/jury`): Voting queues for content approval.
+*   **Uploads** (`/uploads`): Two-step upload process (Presign → Commit).
 
-### Collections (`/collections`)
-| Method | Endpoint | Description | Scope |
-|--------|----------|-------------|-------|
-| GET | `/collections` | List collections | Public |
-| GET | `/collections/me` | My collections | Authenticated |
-| GET | `/collections/{id}` | Collection detail | Public |
-| POST | `/collections` | Create collection | `collections:create` |
-| PUT | `/collections/{id}` | Update collection | Owner/Wiki |
-| POST | `/collections/{id}/rollback` | Version rollback | Owner/Wiki |
-| DELETE | `/collections/{id}` | Delete collection | Owner/Curator |
-| POST | `/collections/{id}/books` | Add book | Owner/Wiki |
-| PATCH | `/collections/{id}/books/{book_id}` | Reorder book | Owner/Wiki |
-| DELETE | `/collections/{id}/books/{book_id}` | Remove book | Owner/Wiki |
-| POST | `/collections/{id}/approve` | Curator approve | `jury:override` |
-| POST | `/collections/{id}/reject` | Curator reject | `jury:override` |
-
-### Jury Voting (`/jury`)
-| Method | Endpoint | Description | Scope |
-|--------|----------|-------------|-------|
-| GET | `/jury/authors` | Pending authors queue | `jury:view` |
-| GET | `/jury/authors/{id}` | Pending author detail | `jury:view` |
-| POST | `/jury/authors/{id}/vote` | Vote on author | `jury:vote` |
-| DELETE | `/jury/authors/{id}/vote` | Retract vote | Authenticated |
-| GET | `/jury/books` | Pending books queue | `jury:view` |
-| POST | `/jury/books/{id}/vote` | Vote on book | `jury:vote` |
-| GET | `/jury/collections` | Pending collections | `jury:view` |
-| POST | `/jury/collections/{id}/vote` | Vote on collection | `jury:vote` |
-
-### Media Uploads (`/uploads`)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/uploads/books/{id}/cover/presign` | Get presigned URL for book cover |
-| POST | `/uploads/books/{id}/cover/commit` | Confirm cover upload → Celery |
-| POST | `/uploads/books/{id}/file/presign` | Get presigned URL for book file |
-| POST | `/uploads/books/{id}/file/commit` | Confirm file upload → Celery |
-| POST | `/uploads/authors/{id}/avatar/presign` | Get presigned URL for avatar |
-| POST | `/uploads/authors/{id}/avatar/commit` | Confirm avatar upload → Celery |
-| POST | `/uploads/collections/{id}/cover/presign` | Get presigned URL for collection cover |
-| POST | `/uploads/collections/{id}/cover/commit` | Confirm cover upload → Celery |
-
-### Health Checks
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Liveness probe |
-| `GET /ready` | Readiness probe (DB + Redis) |
-| `GET /test` | Frontend test page |
-
-## Media Upload Flow
-
-```
-1. Client → POST /uploads/.../presign (get S3 presigned URL + claim token)
-2. Client → PUT to S3 presigned URL (upload file directly)
-3. Client → POST /uploads/.../commit (validate claim + trigger Celery)
-4. Celery → Download from S3, validate, resize, AV scan, save variants
-5. Celery → Update DB with new key, invalidate cache
-```
-
-**Supported Formats:**
-- Images: JPEG, PNG, WebP, AVIF → converted to WebP
-- Book Files: PDF, EPUB
-
-**Generated Sizes:**
-- Covers: 1800x2700, 1200x1800, 600x900 (2:3 ratio)
-- Avatars: 512, 256, 128 (square)
-
-## Testing
-
-```bash
-# Run all tests (251 tests)
-docker compose exec app pytest tests/ -v
-
-# Specific test suites
-docker compose exec app pytest tests/test_upload_endpoints.py -v
-docker compose exec app pytest tests/test_media_processing.py -v
-docker compose exec app pytest tests/test_jury_voting.py -v
-```
+### System
+*   **Health** (`/health`, `/ready`): Liveness and readiness probes.
 
 ## Configuration
 
 See `.env.example` for all configuration options. Key settings:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_ASYNC_URL` | PostgreSQL connection | Required |
-| `SERVICE_API_KEY` | Auth Service shared secret | Required |
-| `AWS_ACCESS_KEY_ID` | S3 credentials | Required for media |
-| `S3_BUCKET_NAME` | Media bucket | `library-media-demo` |
-| `CLAMAV_ENABLED` | Enable virus scanning | `false` |
-| `COVER_OUTPUT_FORMAT` | Image output format | `WEBP` |
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_ASYNC_URL` | PostgreSQL connection string |
+| `SERVICE_API_KEY` | Shared secret for Auth Service communication |
+| `AWS_ACCESS_KEY_ID` | S3 credentials for media storage |
+| `S3_BUCKET_NAME` | Target S3 bucket name |
+| `CLAMAV_ENABLED` | Toggle for virus scanning (`true`/`false`) |
 
 ## License
 
