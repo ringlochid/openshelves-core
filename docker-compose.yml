@@ -19,7 +19,7 @@ services:
     container_name: library-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
       POSTGRES_DB: library_app
     ports:
       - "5432:5432"
