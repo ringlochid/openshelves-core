@@ -30,8 +30,8 @@ def sync_view_counts() -> dict:
 
         try:
             async with WorkerSession() as db:
-                # Initialize Redis
-                r = await cache.init_redis()
+                # Initialize Redis with fresh connection for this task
+                r = cache.create_worker_redis()
                 updated_books = 0
                 updated_collections = 0
 

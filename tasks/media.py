@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from helpers.edit_history import record_update, serialize_entity
 from celery_app import app
 from database import create_worker_session
-from models import Author, Book, Collection, EditHistory, EditAction
+from models import Author, Book, Collection, CollectionBook, EditHistory, EditAction
 from cache import (
     create_worker_redis,
     invalidate_author,
@@ -316,7 +316,9 @@ async def _update_image_key_with_history(
                 stmt = (
                     select(Collection)
                     .where(Collection.id == entity_id)
-                    .options(selectinload(Collection.books))
+                    .options(
+                        selectinload(Collection.books).selectinload(CollectionBook.book)
+                    )
                 )
                 result = await session.execute(stmt)
                 entity = result.scalar_one_or_none()

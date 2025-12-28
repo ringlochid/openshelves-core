@@ -197,10 +197,10 @@ const libraryApi = {
   async deleteBook(id) { return apiRequest(CONFIG.LIBRARY_URL, 'DELETE', `/books/${id}`); },
   async getBookReviews(bookId) { return apiRequest(CONFIG.LIBRARY_URL, 'GET', `/books/${bookId}/reviews`, null, false); },
   async createReview(bookId, rating, comment = null) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${bookId}/reviews`, { rating, comment }); },
-  async voteReview(bookId, reviewId, vote) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${bookId}/reviews/${reviewId}/vote`, { vote }); },
+  async voteReview(reviewId, vote) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/reviews/${reviewId}/vote`, { vote }); },
   async approveBook(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/approve`); },
   async rejectBook(id, reason) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/reject?reason=${encodeURIComponent(reason)}`); },
-  async rollbackBook(id, targetVersion) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/rollback`, { target_version: targetVersion }); },
+  async rollbackBook(id, targetVersion, currentVersion) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/rollback`, { target_version: targetVersion, version: currentVersion }); },
 
   // Authors
   async listAuthors(params = {}) {
@@ -217,7 +217,7 @@ const libraryApi = {
   async deleteAuthor(id) { return apiRequest(CONFIG.LIBRARY_URL, 'DELETE', `/authors/${id}`); },
   async followAuthor(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/authors/${id}/follow`); },
   async unfollowAuthor(id) { return apiRequest(CONFIG.LIBRARY_URL, 'DELETE', `/authors/${id}/follow`); },
-  async rollbackAuthor(id, targetVersion) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/authors/${id}/rollback`, { target_version: targetVersion }); },
+  async rollbackAuthor(id, targetVersion, currentVersion) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/authors/${id}/rollback`, { target_version: targetVersion, version: currentVersion }); },
 
   // Collections
   async listCollections(params = {}) {
@@ -239,6 +239,7 @@ const libraryApi = {
     return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/collections/${collectionId}/books`, data);
   },
   async removeBookFromCollection(collectionId, bookId) { return apiRequest(CONFIG.LIBRARY_URL, 'DELETE', `/collections/${collectionId}/books/${bookId}`); },
+  async rollbackCollection(id, targetVersion, currentVersion) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/collections/${id}/rollback`, { target_version: targetVersion, version: currentVersion }); },
 
   // Jury
   async getPendingAuthors(page = 1) { return apiRequest(CONFIG.LIBRARY_URL, 'GET', `/jury/authors?page=${page}`); },
@@ -261,6 +262,8 @@ const libraryApi = {
   async commitBookFile(bookId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/books/${bookId}/file/commit`, { upload_id: uploadId, s3_key: s3Key }); },
   async presignAuthorAvatar(authorId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar`, { content_type: contentType }); },
   async commitAuthorAvatar(authorId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/authors/${authorId}/avatar/commit`, { upload_id: uploadId, s3_key: s3Key }); },
+  async presignCollectionCover(collectionId, contentType) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/collections/${collectionId}/cover`, { content_type: contentType }); },
+  async commitCollectionCover(collectionId, uploadId, s3Key) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/uploads/collections/${collectionId}/cover/commit`, { upload_id: uploadId, s3_key: s3Key }); },
 
   async health() { return apiRequest(CONFIG.LIBRARY_URL, 'GET', '/ready', null, false); },
 };

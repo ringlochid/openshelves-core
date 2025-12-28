@@ -32,6 +32,7 @@ from helpers.collection import (
     check_collection_permission,
     check_delete_permission,
     link_books_to_collection,
+    reload_collection_for_serialize,
 )
 from models import (
     Book,
@@ -467,7 +468,7 @@ async def create_collection(
         )
 
     # Record creation in history
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_create(
         db=db,
         entity_type="collection",
@@ -514,11 +515,11 @@ async def update_collection(
             detail="Too many requests. Please try again later.",
         )
 
-    # Get collection
+    # Get collection with books (including book details for serialization)
     result = await db.execute(
-        select(Collection).where(
-            Collection.id == collection_id, Collection.is_deleted == False
-        )
+        select(Collection)
+        .where(Collection.id == collection_id, Collection.is_deleted == False)
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     collection = result.scalar_one_or_none()
 
@@ -542,7 +543,7 @@ async def update_collection(
         )
 
     # Save old state
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -568,7 +569,8 @@ async def update_collection(
     collection.last_edited_at = datetime.now(timezone.utc)
 
     # Record update
-    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
+    await db.flush()
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_update(
         db=db,
         entity_type="collection",
@@ -622,11 +624,11 @@ async def rollback_collection_version(
             detail="Too many requests. Please try again later.",
         )
 
-    # Fetch collection with books
+    # Fetch collection with books (including book details for serialization)
     query = (
         select(Collection)
         .where(Collection.id == collection_id)
-        .options(selectinload(Collection.books))
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     result = await db.execute(query)
     collection = result.scalar_one_or_none()
@@ -684,7 +686,7 @@ async def rollback_collection_version(
         )
 
     # Capture old state BEFORE rollback for audit
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data_for_audit = serialize_entity(collection)
     old_version = collection.version
 
@@ -723,7 +725,7 @@ async def rollback_collection_version(
     collection.last_edited_at = datetime.now(timezone.utc)
 
     # Record rollback in history with correct pre/post snapshots
-    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_update(
         db=db,
         entity_type="collection",
@@ -775,9 +777,9 @@ async def delete_collection(
 
     # Get collection
     result = await db.execute(
-        select(Collection).where(
-            Collection.id == collection_id, Collection.is_deleted == False
-        )
+        select(Collection)
+        .where(Collection.id == collection_id, Collection.is_deleted == False)
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     collection = result.scalar_one_or_none()
 
@@ -794,7 +796,7 @@ async def delete_collection(
         )
 
     # Save old state
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data = serialize_entity(collection)
 
     # Soft delete
@@ -834,11 +836,11 @@ async def add_book_to_collection(
     Add a book to collection at specified position.
     Position is clamped to valid range [1, current_max + 1].
     """
-    # Get collection
+    # Get collection with books for serialization
     result = await db.execute(
         select(Collection)
         .where(Collection.id == collection_id, Collection.is_deleted == False)
-        .options(selectinload(Collection.books))
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     collection = result.scalar_one_or_none()
 
@@ -893,6 +895,10 @@ async def add_book_to_collection(
             detail="Book already in collection",
         )
 
+    # Capture old state for history
+    old_data = serialize_entity(collection)
+    old_version = collection.version
+
     # Clamp position
     current_max = collection.book_count
     position = max(1, min(data.position, current_max + 1))
@@ -920,17 +926,24 @@ async def add_book_to_collection(
 
     collection.book_count += 1
     collection.version += 1
+    collection.last_edited_by = current_user["user_id"]
+    collection.last_edited_at = datetime.now(timezone.utc)
 
-    # Record update
+    # Sync changes and reload for serialization
+    await db.flush()
+    collection = await reload_collection_for_serialize(db, collection.id)
+    new_data = serialize_entity(collection)
+
+    # Record update with proper serialization for rollback
     await record_update(
         db=db,
         entity_type="collection",
         entity_id=collection.id,
         user_id=current_user["user_id"],
-        old_data={"action": "add_book", "book_id": data.book_id},
-        new_data={"action": "add_book", "book_id": data.book_id, "position": position},
+        old_data=old_data,
+        new_data=new_data,
         new_version=collection.version,
-        old_version=collection.version - 1,
+        old_version=old_version,
     )
 
     await db.commit()
@@ -959,11 +972,11 @@ async def reorder_book_in_collection(
     """
     Reorder a book within the collection.
     """
-    # Get collection
+    # Get collection with books for serialization
     result = await db.execute(
-        select(Collection).where(
-            Collection.id == collection_id, Collection.is_deleted == False
-        )
+        select(Collection)
+        .where(Collection.id == collection_id, Collection.is_deleted == False)
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     collection = result.scalar_one_or_none()
 
@@ -1000,6 +1013,10 @@ async def reorder_book_in_collection(
     if old_position == new_position:
         return {"message": "No change", "position": old_position}
 
+    # Capture old state for history
+    old_data = serialize_entity(collection)
+    old_version = collection.version
+
     # Shift positions
     if new_position < old_position:
         # Moving up - shift items in range down
@@ -1030,6 +1047,25 @@ async def reorder_book_in_collection(
 
     cb.position = new_position
     collection.version += 1
+    collection.last_edited_by = current_user["user_id"]
+    collection.last_edited_at = datetime.now(timezone.utc)
+
+    # Sync changes and reload for serialization
+    await db.flush()
+    collection = await reload_collection_for_serialize(db, collection.id)
+    new_data = serialize_entity(collection)
+
+    # Record update with proper serialization for rollback
+    await record_update(
+        db=db,
+        entity_type="collection",
+        entity_id=collection.id,
+        user_id=current_user["user_id"],
+        old_data=old_data,
+        new_data=new_data,
+        new_version=collection.version,
+        old_version=old_version,
+    )
 
     await db.commit()
 
@@ -1056,11 +1092,11 @@ async def remove_book_from_collection(
     """
     Remove a book from collection.
     """
-    # Get collection
+    # Get collection with books for serialization
     result = await db.execute(
-        select(Collection).where(
-            Collection.id == collection_id, Collection.is_deleted == False
-        )
+        select(Collection)
+        .where(Collection.id == collection_id, Collection.is_deleted == False)
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
     )
     collection = result.scalar_one_or_none()
 
@@ -1091,6 +1127,10 @@ async def remove_book_from_collection(
             detail="Book not in collection",
         )
 
+    # Capture old state for history
+    old_data = serialize_entity(collection)
+    old_version = collection.version
+
     removed_position = cb.position
 
     # Delete
@@ -1110,21 +1150,24 @@ async def remove_book_from_collection(
 
     collection.book_count -= 1
     collection.version += 1
+    collection.last_edited_by = current_user["user_id"]
+    collection.last_edited_at = datetime.now(timezone.utc)
 
-    # Record update
+    # Sync changes and reload for serialization
+    await db.flush()
+    collection = await reload_collection_for_serialize(db, collection.id)
+    new_data = serialize_entity(collection)
+
+    # Record update with proper serialization for rollback
     await record_update(
         db=db,
         entity_type="collection",
         entity_id=collection.id,
         user_id=current_user["user_id"],
-        old_data={
-            "action": "remove_book",
-            "book_id": book_id,
-            "position": removed_position,
-        },
-        new_data={"action": "remove_book", "book_id": book_id},
+        old_data=old_data,
+        new_data=new_data,
         new_version=collection.version,
-        old_version=collection.version - 1,
+        old_version=old_version,
     )
 
     await db.commit()
@@ -1186,7 +1229,7 @@ async def approve_collection(
         )
 
     # Save old state
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1196,7 +1239,7 @@ async def approve_collection(
     collection.version += 1
 
     # Record approval
-    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_approval(
         db=db,
         entity_type="collection",
@@ -1288,7 +1331,7 @@ async def reject_collection(
         )
 
     # Save old state
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1298,7 +1341,7 @@ async def reject_collection(
     collection.version += 1
 
     # Record rejection
-    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_rejection(
         db=db,
         entity_type="collection",
@@ -1384,7 +1427,7 @@ async def recover_collection(
         )
 
     # Save old state
-    await db.refresh(collection, ["books"])  # Load relationship for serialization
+    # collection = await reload_collection_for_serialize(db, collection.id)
     old_data = serialize_entity(collection)
     old_version = collection.version
 
@@ -1394,7 +1437,7 @@ async def recover_collection(
     collection.version += 1
 
     # Record recovery
-    await db.refresh(collection, ["books"])  # Refresh after changes for new_data
+    collection = await reload_collection_for_serialize(db, collection.id)
     await record_recovery(
         db=db,
         entity_type="collection",

@@ -278,25 +278,69 @@ async function loadBookDetail() {
         document.getElementById('bookDetailDisplay').classList.remove('hidden');
         document.getElementById('bookReviewsSection').classList.remove('hidden');
 
+        // Build cover image HTML - use available size from cover_urls
+        const coverUrl = book.cover_urls?.['800x800'] || book.cover_urls?.['1200x1800'] || Object.values(book.cover_urls || {})[0] || null;
+        const coverHtml = coverUrl
+            ? `<img src="${coverUrl}" alt="${book.title}" style="width:180px;height:auto;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.3);">`
+            : `<div style="width:180px;height:250px;background:var(--bg-tertiary);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:3rem;">📖</div>`;
+
+        // Build download button if file exists (uses file_url from FileKeyMixin)
+        const downloadHtml = book.file_url
+            ? `<a href="${book.file_url}" target="_blank" class="btn btn-success" style="margin-top:12px;width:100%;">📥 Download ${book.file_format?.toUpperCase() || 'File'}</a>`
+            : '';
+
+        // Get review count from embedded reviews array
+        const reviewCount = book.reviews?.length || 0;
+
         document.getElementById('bookDetailContent').innerHTML = `
-      <h3>${book.title}</h3>
-      <span class="badge badge-${book.status?.toLowerCase() || 'pending'}">${book.status}</span>
-      <table class="mt-4" style="width:100%">
-        <tr><td><strong>ID</strong></td><td>${book.id}</td></tr>
-        <tr><td><strong>Year</strong></td><td>${book.year || '-'}</td></tr>
-        <tr><td><strong>Version</strong></td><td>${book.version}</td></tr>
-        <tr><td><strong>Rating</strong></td><td>${book.average_rating?.toFixed(1) || '-'} ⭐ (${book.review_count || 0} reviews)</td></tr>
-        <tr><td><strong>Views</strong></td><td>${book.view_count || 0}</td></tr>
-        <tr><td><strong>Subscribers</strong></td><td>${book.subscriber_count || 0}</td></tr>
-        <tr><td><strong>Tags</strong></td><td>${(book.tags || []).join(', ') || '-'}</td></tr>
-        <tr><td><strong>Description</strong></td><td>${book.description || '-'}</td></tr>
-        <tr><td><strong>Authors</strong></td><td>${(book.authors || []).map(a => a.name).join(', ') || '-'}</td></tr>
-      </table>
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <div style="flex-shrink:0;">
+          ${coverHtml}
+          ${downloadHtml}
+        </div>
+        <div style="flex:1;">
+          <h3 style="margin:0;font-size:1.5rem;color:var(--text-primary);">${book.title}</h3>
+          <span class="badge badge-${book.status?.toLowerCase() || 'pending'}" style="margin-top:8px;display:inline-block;">${book.status}</span>
+          
+          <div style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;color:var(--text-secondary);">
+            <span style="color:var(--text-muted);">Authors</span>
+            <span>${(book.authors || []).map(a => a.name).join(', ') || '-'}</span>
+            
+            <span style="color:var(--text-muted);">Year</span>
+            <span>${book.year || '-'}</span>
+            
+            <span style="color:var(--text-muted);">Rating</span>
+            <span>${book.average_rating?.toFixed(1) || '0.0'} ⭐ (${reviewCount} reviews)</span>
+            
+            <span style="color:var(--text-muted);">Views</span>
+            <span>${book.view_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Subscribers</span>
+            <span>${book.subscriber_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Tags</span>
+            <span>${(book.tags || []).map(t => `<span class="badge badge-pending" style="font-size:0.75rem;margin-right:4px;">${t}</span>`).join('') || '-'}</span>
+            
+            <span style="color:var(--text-muted);">Version</span>
+            <span>v${book.version}</span>
+          </div>
+          
+          <div style="margin-top:16px;">
+            <span style="color:var(--text-muted);">Description</span>
+            <p style="margin-top:4px;color:var(--text-primary);">${book.description || 'No description'}</p>
+          </div>
+        </div>
+      </div>
     `;
 
-        // Load reviews
+        // Load reviews - also store embedded reviews for display
         window.currentBookId = book.id;
-        loadBookReviews(book.id);
+        // If book has embedded reviews, display them directly; otherwise fetch
+        if (book.reviews && book.reviews.length > 0) {
+            displayBookReviews(book.id, book.reviews);
+        } else {
+            loadBookReviews(book.id);
+        }
     } catch (e) {
         toast(e.message || 'Failed to load book', 'error');
     }
@@ -305,32 +349,38 @@ async function loadBookDetail() {
 async function loadBookReviews(bookId) {
     try {
         const data = await libraryApi.getBookReviews(bookId);
-        const container = document.getElementById('bookReviewsList');
+        // API returns array directly, not {items: []}
+        const reviews = Array.isArray(data) ? data : (data.items || []);
+        displayBookReviews(bookId, reviews);
+    } catch (e) {
+        document.getElementById('bookReviewsList').innerHTML = `<span class="text-error">Error loading reviews: ${e.message}</span>`;
+    }
+}
 
-        if (!data.items || data.items.length === 0) {
-            container.innerHTML = '<div class="text-muted">No reviews yet</div>';
-            return;
-        }
+function displayBookReviews(bookId, reviews) {
+    const container = document.getElementById('bookReviewsList');
 
-        container.innerHTML = data.items.map(r => `
-      <div class="card">
+    if (!reviews || reviews.length === 0) {
+        container.innerHTML = '<div class="text-muted">No reviews yet</div>';
+        return;
+    }
+
+    container.innerHTML = reviews.map(r => `
+      <div class="card" style="margin-bottom:12px;background:var(--bg-tertiary);padding:16px;border-radius:8px;">
         <div class="flex justify-between items-center">
-          <strong>${'⭐'.repeat(r.rating)}</strong>
+          <strong style="color:var(--warning);">${'⭐'.repeat(r.rating)}</strong>
           <span class="text-muted text-sm">${new Date(r.created_at).toLocaleDateString()}</span>
         </div>
-        <p class="mt-2">${r.comment || '<em>No comment</em>'}</p>
+        <p class="mt-2" style="color:var(--text-primary);">${r.comment || '<em>No comment</em>'}</p>
         <div class="mt-2 text-muted text-sm">
           👍 ${r.helpful_count || 0} | 👎 ${r.unhelpful_count || 0}
           ${isLoggedIn() ? `
-            <button class="btn btn-sm btn-secondary" onclick="voteOnReview(${bookId}, ${r.id}, 'HELPFUL')">👍</button>
-            <button class="btn btn-sm btn-secondary" onclick="voteOnReview(${bookId}, ${r.id}, 'UNHELPFUL')">👎</button>
+            <button class="btn btn-sm btn-secondary" onclick="voteOnReview(${r.id}, 'HELPFUL')">👍</button>
+            <button class="btn btn-sm btn-secondary" onclick="voteOnReview(${r.id}, 'UNHELPFUL')">👎</button>
           ` : ''}
         </div>
       </div>
     `).join('');
-    } catch (e) {
-        document.getElementById('bookReviewsList').innerHTML = `<span class="text-error">Error loading reviews</span>`;
-    }
 }
 
 async function submitReview() {
@@ -349,11 +399,14 @@ async function submitReview() {
     }
 }
 
-async function voteOnReview(bookId, reviewId, vote) {
+async function voteOnReview(reviewId, vote) {
     try {
-        await libraryApi.voteReview(bookId, reviewId, vote);
+        await libraryApi.voteReview(reviewId, vote);
         toast('Vote recorded!', 'success');
-        loadBookReviews(bookId);
+        // Reload reviews for current book
+        if (window.currentBookId) {
+            loadBookReviews(window.currentBookId);
+        }
     } catch (e) {
         toast(e.message || 'Vote failed', 'error');
     }
@@ -502,22 +555,125 @@ function renderAuthors(authors) {
         return;
     }
 
-    container.innerHTML = authors.map(a => `
-    <div class="item-card" onclick="viewAuthor(${a.id})">
-      <div class="item-card-title">${a.name}</div>
-      <div class="item-card-meta">
-        <span class="badge badge-${a.status?.toLowerCase()}">${a.status}</span>
-        <br>Followers: ${a.follower_count || 0}
+    container.innerHTML = authors.map(a => {
+        // AuthorRead has avatar_key but not avatar_urls computed field
+        // Show a placeholder or construct URL if we had S3 config
+        const hasAvatar = !!a.avatar_key;
+        const avatarHtml = hasAvatar
+            ? `<div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;flex-shrink:0;">${a.name.charAt(0).toUpperCase()}</div>`
+            : `<div style="width:48px;height:48px;border-radius:50%;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;">👤</div>`;
+
+        return `
+    <div class="item-card" onclick="viewAuthor(${a.id})" style="display:flex;align-items:center;gap:16px;">
+      ${avatarHtml}
+      <div style="flex:1;">
+        <div class="item-card-title">${a.name}</div>
+        <div class="item-card-meta">
+          <span class="badge badge-${a.status?.toLowerCase()}">${a.status}</span>
+          <span style="margin-left:8px;">👥 ${a.follower_count || 0}</span>
+        </div>
       </div>
     </div>
-  `).join('');
+  `;
+    }).join('');
 }
 
 function viewAuthor(id) {
-    document.getElementById('editAuthorId').value = id;
-    navigateTo('author-crud');
-    showAuthorTab('edit');
-    loadAuthorForEdit();
+    document.getElementById('authorDetailId').value = id;
+    navigateTo('author-detail');
+    loadAuthorDetail();
+}
+
+// ============================================
+// AUTHOR DETAIL PAGE
+// ============================================
+async function loadAuthorDetail() {
+    const id = document.getElementById('authorDetailId').value;
+    if (!id) return;
+
+    try {
+        const author = await libraryApi.getAuthor(id);
+        document.getElementById('authorDetailDisplay').classList.remove('hidden');
+        document.getElementById('authorBooksSection').classList.remove('hidden');
+        window.currentAuthorId = author.id;
+
+        // Build avatar HTML - AuthorDetail has avatar_urls from AvatarKeyMixin
+        const avatarUrl = author.avatar_urls?.['256'] || author.avatar_urls?.['128'] || author.avatar_urls?.['512'] || null;
+        const avatarHtml = avatarUrl
+            ? `<img src="${avatarUrl}" alt="${author.name}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;box-shadow:0 8px 24px rgba(0,0,0,0.3);">`
+            : `<div style="width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;font-size:3rem;font-weight:bold;">${author.name.charAt(0).toUpperCase()}</div>`;
+
+        // Follow button (if logged in)
+        const followHtml = isLoggedIn()
+            ? `<button class="btn btn-secondary" onclick="toggleFollowAuthor(${author.id})" style="margin-top:12px;">👥 Follow</button>`
+            : '';
+
+        document.getElementById('authorDetailContent').innerHTML = `
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <div style="flex-shrink:0;text-align:center;">
+          ${avatarHtml}
+          ${followHtml}
+        </div>
+        <div style="flex:1;">
+          <h3 style="margin:0;font-size:1.5rem;color:var(--text-primary);">${author.name}</h3>
+          <span class="badge badge-${author.status?.toLowerCase() || 'pending'}" style="margin-top:8px;display:inline-block;">${author.status}</span>
+          
+          <div style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;color:var(--text-secondary);">
+            <span style="color:var(--text-muted);">Email</span>
+            <span>${author.email || '-'}</span>
+            
+            <span style="color:var(--text-muted);">Followers</span>
+            <span>👥 ${author.follower_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Books</span>
+            <span>📚 ${author.books?.length || 0}</span>
+            
+            <span style="color:var(--text-muted);">Version</span>
+            <span>v${author.version}</span>
+          </div>
+          
+          <div style="margin-top:16px;">
+            <span style="color:var(--text-muted);">Bio</span>
+            <p style="margin-top:4px;color:var(--text-primary);">${author.bio || 'No biography'}</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+        // Display books by this author
+        if (author.books && author.books.length > 0) {
+            document.getElementById('authorBooksList').innerHTML = author.books.map(b => `
+        <div class="item-card" onclick="navigateTo('book-detail'); document.getElementById('bookDetailId').value='${b.id}'; loadBookDetail();">
+          <div class="item-card-title">${b.title}</div>
+          <div class="item-card-meta">
+            <span class="badge badge-${b.status?.toLowerCase()}">${b.status}</span>
+            <span style="margin-left:8px;">⭐ ${b.average_rating?.toFixed(1) || '0.0'}</span>
+          </div>
+        </div>
+      `).join('');
+        } else {
+            document.getElementById('authorBooksList').innerHTML = '<div class="text-muted">No books found</div>';
+        }
+    } catch (e) {
+        toast(e.message || 'Failed to load author', 'error');
+    }
+}
+
+async function toggleFollowAuthor(authorId) {
+    try {
+        await libraryApi.followAuthor(authorId);
+        toast('Following author!', 'success');
+        loadAuthorDetail();
+    } catch (e) {
+        // Might already be following, try unfollow
+        try {
+            await libraryApi.unfollowAuthor(authorId);
+            toast('Unfollowed author', 'info');
+            loadAuthorDetail();
+        } catch (e2) {
+            toast(e.message || 'Action failed', 'error');
+        }
+    }
 }
 
 // ============================================
@@ -664,15 +820,26 @@ function renderCollections(collections) {
         return;
     }
 
-    container.innerHTML = collections.map(c => `
-    <div class="item-card">
-      <div class="item-card-title">${c.name}</div>
-      <div class="item-card-meta">
-        <span class="badge badge-${c.status?.toLowerCase()}">${c.status}</span>
-        <br>Books: ${c.book_count || 0} | Views: ${c.view_count || 0}
+    container.innerHTML = collections.map(c => {
+        const hasCover = !!c.cover_key;
+        const coverHtml = hasCover
+            ? `<div style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;flex-shrink:0;">📚</div>`
+            : `<div style="width:48px;height:48px;border-radius:8px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;">📚</div>`;
+
+        return `
+    <div class="item-card" onclick="viewCollectionDetail(${c.id})" style="display:flex;align-items:center;gap:16px;cursor:pointer;">
+      ${coverHtml}
+      <div style="flex:1;">
+        <div class="item-card-title">${c.name}</div>
+        <div class="item-card-meta">
+          <span class="badge badge-${c.status?.toLowerCase()}">${c.status}</span>
+          <span style="margin-left:8px;">📖 ${c.book_count || 0}</span>
+          <span style="margin-left:8px;">👥 ${c.subscriber_count || 0}</span>
+        </div>
       </div>
     </div>
-  `).join('');
+  `;
+    }).join('');
 }
 
 async function handleCreateCollection() {
@@ -692,6 +859,234 @@ async function handleCreateCollection() {
         searchCollections();
     } catch (e) {
         toast(e.message || 'Create failed', 'error');
+    }
+}
+
+// Collection detail view
+async function viewCollectionDetail(id) {
+    try {
+        const collection = await libraryApi.getCollection(id);
+        window.currentCollection = collection;
+
+        const booksHtml = (collection.books || []).length > 0
+            ? collection.books.map(b => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-tertiary);border-radius:6px;margin-bottom:8px;">
+                    <span><strong>#${b.position}</strong> - ${b.book?.title || 'Book #' + b.book_id}</span>
+                    ${isLoggedIn() ? `<button class="btn btn-sm btn-danger" onclick="removeBookFromCol(${collection.id}, ${b.book_id})">Remove</button>` : ''}
+                </div>
+            `).join('')
+            : '<div class="text-muted">No books in this collection</div>';
+
+        const html = `
+            <div class="card" style="margin-bottom:16px;">
+                <h3>${collection.name}</h3>
+                <span class="badge badge-${collection.status?.toLowerCase()}">${collection.status}</span>
+                <p style="margin-top:12px;color:var(--text-secondary);">${collection.description || 'No description'}</p>
+                <div style="margin-top:12px;color:var(--text-muted);">
+                    📚 ${collection.book_count || 0} books | 👥 ${collection.subscriber_count || 0} subscribers | 👁 ${collection.view_count || 0} views | v${collection.version}
+                </div>
+            </div>
+            <h4>Books in Collection</h4>
+            ${booksHtml}
+            ${isLoggedIn() ? `
+            <div class="card" style="margin-top:16px;">
+                <h4>Add Book to Collection</h4>
+                <div class="form-group">
+                    <input type="number" id="addBookToColId" placeholder="Book ID">
+                    <input type="number" id="addBookToColPosition" placeholder="Position (optional)">
+                </div>
+                <button class="btn btn-primary" onclick="addBookToCol(${collection.id})">Add Book</button>
+            </div>
+            ` : ''}
+        `;
+
+        document.getElementById('collectionDetailContent').innerHTML = html;
+        document.getElementById('collectionDetailSection').classList.remove('hidden');
+    } catch (e) {
+        toast(e.message || 'Failed to load collection', 'error');
+    }
+}
+
+// ============================================
+// COLLECTION DETAIL PAGE (dedicated page)
+// ============================================
+async function loadCollectionDetailPage() {
+    const id = document.getElementById('collectionDetailId').value;
+    if (!id) return;
+
+    try {
+        const collection = await libraryApi.getCollection(id);
+        document.getElementById('collectionDetailPageDisplay').classList.remove('hidden');
+        document.getElementById('collectionBooksSection').classList.remove('hidden');
+        window.currentCollectionId = collection.id;
+        window.currentCollection = collection; // Store full collection for reordering
+
+        // Build cover HTML
+        const hasCover = !!collection.cover_key;
+        const coverHtml = hasCover
+            ? `<div style="width:120px;height:120px;border-radius:12px;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;font-size:3rem;">📚</div>`
+            : `<div style="width:120px;height:120px;border-radius:12px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:3rem;">📚</div>`;
+
+        document.getElementById('collectionDetailPageContent').innerHTML = `
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <div style="flex-shrink:0;">
+          ${coverHtml}
+        </div>
+        <div style="flex:1;">
+          <h3 style="margin:0;font-size:1.5rem;color:var(--text-primary);">${collection.name}</h3>
+          <span class="badge badge-${collection.status?.toLowerCase() || 'pending'}" style="margin-top:8px;display:inline-block;">${collection.status}</span>
+          
+          <div style="margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;color:var(--text-secondary);">
+            <span style="color:var(--text-muted);">Books</span>
+            <span>📚 ${collection.book_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Subscribers</span>
+            <span>👥 ${collection.subscriber_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Views</span>
+            <span>👁 ${collection.view_count || 0}</span>
+            
+            <span style="color:var(--text-muted);">Version</span>
+            <span>v${collection.version}</span>
+          </div>
+          
+          <div style="margin-top:16px;">
+            <span style="color:var(--text-muted);">Description</span>
+            <p style="margin-top:4px;color:var(--text-primary);">${collection.description || 'No description'}</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+        // Display books in collection with up/down reorder buttons
+        if (collection.books && collection.books.length > 0) {
+            // Sort by position
+            const sortedBooks = [...collection.books].sort((a, b) => a.position - b.position);
+            window.currentCollectionBooks = sortedBooks; // Store for reordering
+
+            document.getElementById('collectionBooksList').innerHTML = sortedBooks.map((b, idx) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:var(--bg-tertiary);border-radius:8px;margin-bottom:8px;" data-book-id="${b.book_id}">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:1.25rem;font-weight:bold;color:var(--primary);">#${idx + 1}</span>
+            <div>
+              <div style="font-weight:bold;color:var(--text-primary);">${b.book?.title || 'Book #' + b.book_id}</div>
+              <div class="text-muted text-sm">⭐ ${b.book?.average_rating?.toFixed(1) || '0.0'} | 👥 ${b.book?.subscriber_count || 0}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;">
+            ${isLoggedIn() ? `
+              <button class="btn btn-sm btn-secondary" onclick="moveBookInCollection(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>⬆</button>
+              <button class="btn btn-sm btn-secondary" onclick="moveBookInCollection(${idx}, 1)" ${idx === sortedBooks.length - 1 ? 'disabled' : ''}>⬇</button>
+              <button class="btn btn-sm btn-danger" onclick="removeBookFromCollection(${collection.id}, ${b.book_id})">Remove</button>
+            ` : ''}
+          </div>
+        </div>
+      `).join('');
+        } else {
+            document.getElementById('collectionBooksList').innerHTML = '<div class="text-muted">No books in this collection</div>';
+        }
+
+        // Show book management if logged in
+        if (isLoggedIn()) {
+            document.getElementById('collectionBookManagement').style.display = 'block';
+        }
+    } catch (e) {
+        toast(e.message || 'Failed to load collection', 'error');
+    }
+}
+
+async function handleAddBookToCollection() {
+    const collectionId = window.currentCollectionId;
+    const bookId = document.getElementById('addBookId').value;
+    const position = document.getElementById('addBookPosition').value;
+
+    if (!collectionId) return toast('No collection selected', 'error');
+    if (!bookId) return toast('Book ID required', 'error');
+
+    try {
+        await libraryApi.addBookToCollection(collectionId, parseInt(bookId), position ? parseInt(position) : null);
+        toast('Book added to collection!', 'success');
+        loadCollectionDetailPage();
+        document.getElementById('addBookId').value = '';
+        document.getElementById('addBookPosition').value = '';
+    } catch (e) {
+        toast(e.message || 'Failed to add book', 'error');
+    }
+}
+
+async function removeBookFromCollection(collectionId, bookId) {
+    if (!confirm('Remove this book from collection?')) return;
+
+    const collection = window.currentCollection;
+    const books = window.currentCollectionBooks;
+
+    if (!collection || !books) return toast('No collection loaded', 'error');
+
+    // Filter out the book to remove and get remaining book_ids
+    const remainingBookIds = books
+        .filter(b => b.book_id !== bookId)
+        .map(b => b.book_id);
+
+    try {
+        // Use PATCH with remaining book_ids array
+        await libraryApi.updateCollection(collection.id, { book_ids: remainingBookIds, version: collection.version });
+        toast('Book removed!', 'success');
+        loadCollectionDetailPage();
+    } catch (e) {
+        toast(e.message || 'Failed to remove book', 'error');
+    }
+}
+
+async function moveBookInCollection(currentIndex, direction) {
+    const collection = window.currentCollection;
+    const books = window.currentCollectionBooks;
+
+    if (!collection || !books) return toast('No collection loaded', 'error');
+
+    const newIndex = currentIndex + direction;
+    if (newIndex < 0 || newIndex >= books.length) return;
+
+    // Swap positions in array
+    const newOrder = [...books];
+    [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
+
+    // Extract book_ids in new order
+    const bookIds = newOrder.map(b => b.book_id);
+
+    try {
+        // Use PATCH /collections/{id} with book_ids array to reorder
+        await libraryApi.updateCollection(collection.id, { book_ids: bookIds, version: collection.version });
+        toast('Order updated!', 'success');
+        loadCollectionDetailPage();
+    } catch (e) {
+        toast(e.message || 'Failed to update order', 'error');
+    }
+}
+
+async function addBookToCol(collectionId) {
+    const bookId = document.getElementById('addBookToColId').value;
+    const position = document.getElementById('addBookToColPosition').value;
+
+    if (!bookId) return toast('Book ID required', 'error');
+
+    try {
+        await libraryApi.addBookToCollection(collectionId, parseInt(bookId), position ? parseInt(position) : null);
+        toast('Book added!', 'success');
+        viewCollectionDetail(collectionId);
+    } catch (e) {
+        toast(e.message || 'Failed to add book', 'error');
+    }
+}
+
+async function removeBookFromCol(collectionId, bookId) {
+    if (!confirm('Remove this book from collection?')) return;
+
+    try {
+        await libraryApi.removeBookFromCollection(collectionId, bookId);
+        toast('Book removed!', 'success');
+        viewCollectionDetail(collectionId);
+    } catch (e) {
+        toast(e.message || 'Failed to remove book', 'error');
     }
 }
 
@@ -871,13 +1266,34 @@ async function handleRollback() {
 
     const type = window.historyEntityType;
     const id = window.historyEntityId;
+    const targetVersion = detail.version;
 
     try {
+        // First, fetch the current entity to get its version for optimistic locking
+        let currentEntity;
         if (type === 'book') {
-            await libraryApi.rollbackBook(id, detail.version);
+            currentEntity = await libraryApi.getBook(id);
         } else if (type === 'author') {
-            await libraryApi.rollbackAuthor(id, detail.version);
+            currentEntity = await libraryApi.getAuthor(id);
+        } else if (type === 'collection') {
+            currentEntity = await libraryApi.getCollection(id);
         }
+
+        if (!currentEntity || currentEntity.version === undefined) {
+            return toast('Failed to get current entity version', 'error');
+        }
+
+        const currentVersion = currentEntity.version;
+
+        // Now call rollback with both target_version and current version
+        if (type === 'book') {
+            await libraryApi.rollbackBook(id, targetVersion, currentVersion);
+        } else if (type === 'author') {
+            await libraryApi.rollbackAuthor(id, targetVersion, currentVersion);
+        } else if (type === 'collection') {
+            await libraryApi.rollbackCollection(id, targetVersion, currentVersion);
+        }
+
         toast('Rollback successful!', 'success');
         loadHistory();
     } catch (e) {
@@ -949,6 +1365,28 @@ async function handleAuthorAvatarUpload() {
         await libraryApi.commitAuthorAvatar(authorId, presign.upload_id, presign.s3_key);
 
         toast('Avatar uploaded! Processing...', 'success');
+    } catch (e) {
+        toast(e.message || 'Upload failed', 'error');
+    }
+}
+
+async function handleCollectionCoverUpload() {
+    const collectionId = document.getElementById('uploadCollectionCoverId').value;
+    const file = document.getElementById('uploadCollectionCoverFile').files[0];
+
+    if (!collectionId || !file) return toast('Select collection ID and file', 'error');
+
+    try {
+        // Presign
+        const presign = await libraryApi.presignCollectionCover(collectionId, file.type);
+
+        // Upload to S3
+        await uploadToS3(presign, file);
+
+        // Commit with upload_id and s3_key
+        await libraryApi.commitCollectionCover(collectionId, presign.upload_id, presign.s3_key);
+
+        toast('Cover uploaded! Processing...', 'success');
     } catch (e) {
         toast(e.message || 'Upload failed', 'error');
     }

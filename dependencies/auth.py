@@ -296,12 +296,10 @@ async def verify_service_token(
         )
 
 
+# Legacy function - do not use in new code
 def require_min_trust(min_trust: int) -> Callable:
     """
     Dependency factory to require minimum trust score.
-
-    Usage:
-        @app.post("/reviews/{id}/vote", dependencies=[Depends(require_min_trust(50))])
 
     Args:
         min_trust: Minimum required trust score

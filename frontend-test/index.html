@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/test-static/styles.css">
 </head>
+
 <body>
   <div id="toastContainer" class="toast-container"></div>
 
@@ -34,8 +36,10 @@
         <button class="nav-item" data-page="book-detail"><span class="icon">📄</span> Book Detail</button>
         <button class="nav-item" data-page="book-crud"><span class="icon">✏️</span> Book CRUD</button>
         <button class="nav-item" data-page="authors"><span class="icon">✍️</span> Authors</button>
+        <button class="nav-item" data-page="author-detail"><span class="icon">👤</span> Author Detail</button>
         <button class="nav-item" data-page="author-crud"><span class="icon">📝</span> Author CRUD</button>
         <button class="nav-item" data-page="collections"><span class="icon">📚</span> Collections</button>
+        <button class="nav-item" data-page="collection-detail"><span class="icon">📋</span> Collection Detail</button>
         <button class="nav-item" data-page="jury"><span class="icon">⚖️</span> Jury Queue</button>
         <button class="nav-item" data-page="history"><span class="icon">🕐</span> Edit History</button>
         <button class="nav-item" data-page="uploads"><span class="icon">📤</span> Media Upload</button>
@@ -65,7 +69,7 @@
           <div class="page active" id="page-auth">
             <h2 class="page-title">🔐 Authentication</h2>
             <p class="page-subtitle">Login or create a new account</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Login</div>
@@ -108,7 +112,7 @@
           <div class="page" id="page-email">
             <h2 class="page-title">📧 Email Verification</h2>
             <p class="page-subtitle">Verify your email address</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Send Verification</div>
@@ -134,7 +138,7 @@
           <div class="page" id="page-profile">
             <h2 class="page-title">👤 Profile & Avatar</h2>
             <p class="page-subtitle">View and update your profile</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Profile Info</div>
@@ -173,7 +177,7 @@
           <div class="page" id="page-sessions">
             <h2 class="page-title">📱 Sessions</h2>
             <p class="page-subtitle">Manage your active sessions</p>
-            
+
             <div class="card">
               <div class="flex justify-between items-center mb-4">
                 <div class="card-title">Active Sessions</div>
@@ -187,7 +191,7 @@
           <div class="page" id="page-trust">
             <h2 class="page-title">⭐ Trust & Reports</h2>
             <p class="page-subtitle">View trust info and submit content reports</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Your Trust Info</div>
@@ -244,7 +248,7 @@
           <div class="page" id="page-books">
             <h2 class="page-title">📖 Books Browse</h2>
             <p class="page-subtitle">Search and browse approved books</p>
-            
+
             <div class="filters-bar">
               <div class="form-group">
                 <label>Search</label>
@@ -273,7 +277,9 @@
             </div>
 
             <div id="booksResults" class="grid grid-3">
-              <div class="empty-state"><div class="icon">📚</div>Click Search to load books</div>
+              <div class="empty-state">
+                <div class="icon">📚</div>Click Search to load books
+              </div>
             </div>
           </div>
 
@@ -281,7 +287,7 @@
           <div class="page" id="page-book-detail">
             <h2 class="page-title">📄 Book Detail</h2>
             <p class="page-subtitle">View book details and reviews</p>
-            
+
             <div class="card">
               <div class="form-row">
                 <div class="form-group">
@@ -299,7 +305,7 @@
             <div id="bookReviewsSection" class="hidden mt-4">
               <h3 class="mb-4">Reviews</h3>
               <div id="bookReviewsList"></div>
-              
+
               <div class="card mt-4">
                 <div class="card-title">Add Review</div>
                 <div class="form-row">
@@ -327,7 +333,7 @@
           <div class="page" id="page-book-crud">
             <h2 class="page-title">✏️ Book CRUD</h2>
             <p class="page-subtitle">Create, update, and delete books</p>
-            
+
             <div class="tabs">
               <button class="tab-btn active" onclick="showBookTab('create')">Create</button>
               <button class="tab-btn" onclick="showBookTab('my')">My Books</button>
@@ -420,14 +426,16 @@
           <div class="page" id="page-authors">
             <h2 class="page-title">✍️ Authors</h2>
             <p class="page-subtitle">Search and browse authors</p>
-            
+
             <div class="search-bar">
               <input type="text" id="authorSearch" placeholder="Search by name or email...">
               <button class="btn btn-primary" onclick="searchAuthors()">Search</button>
             </div>
 
             <div id="authorsResults" class="grid grid-3">
-              <div class="empty-state"><div class="icon">✍️</div>Click Search to load authors</div>
+              <div class="empty-state">
+                <div class="icon">✍️</div>Click Search to load authors
+              </div>
             </div>
           </div>
 
@@ -435,7 +443,7 @@
           <div class="page" id="page-author-crud">
             <h2 class="page-title">📝 Author CRUD</h2>
             <p class="page-subtitle">Create and manage author profiles</p>
-            
+
             <div class="tabs">
               <button class="tab-btn active" onclick="showAuthorTab('create')">Create</button>
               <button class="tab-btn" onclick="showAuthorTab('my')">My Authors</button>
@@ -512,11 +520,64 @@
             </div>
           </div>
 
+          <!-- ===================== AUTHOR DETAIL PAGE ===================== -->
+          <div class="page" id="page-author-detail">
+            <h2 class="page-title">👤 Author Detail</h2>
+            <p class="page-subtitle">View author profile, avatar, and books</p>
+
+            <div class="card">
+              <div class="search-bar">
+                <input type="number" id="authorDetailId" placeholder="Enter author ID">
+                <button class="btn btn-primary" onclick="loadAuthorDetail()">Load</button>
+              </div>
+            </div>
+
+            <div id="authorDetailDisplay" class="card mt-4 hidden">
+              <div id="authorDetailContent"></div>
+            </div>
+
+            <div id="authorBooksSection" class="mt-4 hidden">
+              <h3>Books by this Author</h3>
+              <div id="authorBooksList" class="grid grid-3"></div>
+            </div>
+          </div>
+
+          <!-- ===================== COLLECTION DETAIL PAGE ===================== -->
+          <div class="page" id="page-collection-detail">
+            <h2 class="page-title">📋 Collection Detail</h2>
+            <p class="page-subtitle">View collection with books, add/remove/reorder books</p>
+
+            <div class="card">
+              <div class="search-bar">
+                <input type="number" id="collectionDetailId" placeholder="Enter collection ID">
+                <button class="btn btn-primary" onclick="loadCollectionDetailPage()">Load</button>
+              </div>
+            </div>
+
+            <div id="collectionDetailPageDisplay" class="card mt-4 hidden">
+              <div id="collectionDetailPageContent"></div>
+            </div>
+
+            <div id="collectionBooksSection" class="mt-4 hidden">
+              <h3>Books in Collection</h3>
+              <div id="collectionBooksList"></div>
+
+              <div class="card mt-4" id="collectionBookManagement" style="display:none;">
+                <h4>Add Book to Collection</h4>
+                <div class="form-group" style="display:flex;gap:12px;">
+                  <input type="number" id="addBookId" placeholder="Book ID" style="flex:1;">
+                  <input type="number" id="addBookPosition" placeholder="Position (optional)" style="flex:1;">
+                  <button class="btn btn-primary" onclick="handleAddBookToCollection()">Add Book</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ===================== COLLECTIONS PAGE ===================== -->
           <div class="page" id="page-collections">
             <h2 class="page-title">📚 Collections</h2>
             <p class="page-subtitle">Browse and manage book collections</p>
-            
+
             <div class="search-bar">
               <input type="text" id="collectionSearch" placeholder="Search collections...">
               <select id="collectionSort">
@@ -529,7 +590,15 @@
             </div>
 
             <div id="collectionsResults" class="grid grid-3">
-              <div class="empty-state"><div class="icon">📚</div>Click Search to load collections</div>
+              <div class="empty-state">
+                <div class="icon">📚</div>Click Search to load collections
+              </div>
+            </div>
+
+            <!-- Collection Detail Section (shown when a collection is clicked) -->
+            <div id="collectionDetailSection" class="card mt-4 hidden">
+              <div class="card-title">Collection Detail</div>
+              <div id="collectionDetailContent"></div>
             </div>
 
             <div class="card mt-4">
@@ -555,7 +624,7 @@
           <div class="page" id="page-jury">
             <h2 class="page-title">⚖️ Jury Queue</h2>
             <p class="page-subtitle">Vote on pending content (requires jury:view scope)</p>
-            
+
             <div class="tabs">
               <button class="tab-btn active" onclick="showJuryTab('authors')">Authors</button>
               <button class="tab-btn" onclick="showJuryTab('books')">Books</button>
@@ -597,7 +666,7 @@
           <div class="page" id="page-history">
             <h2 class="page-title">🕐 Edit History</h2>
             <p class="page-subtitle">View entity history and rollback changes</p>
-            
+
             <div class="card">
               <div class="form-row">
                 <div class="form-group">
@@ -631,7 +700,7 @@
           <div class="page" id="page-uploads">
             <h2 class="page-title">📤 Media Upload</h2>
             <p class="page-subtitle">Upload covers, avatars, and book files</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Book Cover Upload</div>
@@ -672,13 +741,26 @@
               </div>
               <button class="btn btn-primary" onclick="handleAuthorAvatarUpload()">Upload Avatar</button>
             </div>
+
+            <div class="card mt-4">
+              <div class="card-title">Collection Cover Upload</div>
+              <div class="form-group">
+                <label>Collection ID</label>
+                <input type="number" id="uploadCollectionCoverId" placeholder="Collection ID">
+              </div>
+              <div class="form-group">
+                <label>Image File</label>
+                <input type="file" id="uploadCollectionCoverFile" accept="image/jpeg,image/png,image/webp">
+              </div>
+              <button class="btn btn-primary" onclick="handleCollectionCoverUpload()">Upload Cover</button>
+            </div>
           </div>
 
           <!-- ===================== HEALTH PAGE ===================== -->
           <div class="page" id="page-health">
             <h2 class="page-title">💓 Health Check</h2>
             <p class="page-subtitle">Check service health status</p>
-            
+
             <div class="grid grid-2">
               <div class="card">
                 <div class="card-title">Library Service</div>
@@ -711,4 +793,5 @@
   <script src="/test-static/js/api.js"></script>
   <script src="/test-static/js/handlers.js"></script>
 </body>
+
 </html>

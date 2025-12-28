@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from models import Collection, CollectionBook, Book
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timezone
 from models import ContentStatus
 
@@ -118,4 +119,30 @@ async def link_books_to_collection(
     collection.book_count = (
         linked_count if clear_existing else collection.book_count + linked_count
     )
+    await db.flush()
     return linked_count
+
+
+async def reload_collection_for_serialize(
+    db: AsyncSession,
+    collection_id: int,
+) -> Collection:
+    """
+    Reload collection with all nested relationships for serialization.
+
+    This ensures CollectionBook.book is properly loaded to avoid lazy-load
+    errors when using CollectionSerialize schema.
+
+    Args:
+        db: Database session
+        collection_id: ID of collection to reload
+
+    Returns:
+        Collection with books and nested book relationships loaded
+    """
+    result = await db.execute(
+        select(Collection)
+        .where(Collection.id == collection_id)
+        .options(selectinload(Collection.books).selectinload(CollectionBook.book))
+    )
+    return result.scalar_one()

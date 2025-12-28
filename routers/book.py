@@ -17,7 +17,6 @@ from dependencies.auth import (
     get_current_user,
     get_current_user_optional,
     require_scope,
-    require_min_trust,
 )
 from models import (
     Book,
@@ -1805,7 +1804,7 @@ async def delete_review(
 async def vote_on_review(
     review_id: int,
     data: ReviewVoteCreate,
-    current_user: dict = Depends(require_min_trust(50)),  # Trusted+ users only
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
 ):
@@ -1933,7 +1932,7 @@ async def vote_on_review(
 @router.delete("/reviews/{review_id}/vote", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_review_vote(
     review_id: int,
-    current_user: dict = Depends(require_min_trust(50)),
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
     r: Redis = Depends(cache.get_redis),
 ):
