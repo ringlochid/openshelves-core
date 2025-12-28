@@ -24,10 +24,12 @@ from .shared import (
 
 
 class EmailSchema(BaseModel):
-    email: str
+    email: str | None = Field(None, description="Author email, optional")
 
     @field_validator("email")
-    def validate_email(cls, v: str) -> str:
+    def validate_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         cleaned = v.strip().lower()
         pattern = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
         if not pattern.match(cleaned):
@@ -178,3 +180,30 @@ class AuthorListCursorResponse(BaseModel):
     next_cursor: str | None = Field(
         None, description="Cursor for next page (null if last page)"
     )
+
+
+# ========================================
+# Vote Response
+# ========================================
+
+
+class AuthorVoteResponse(AuthorDetail):
+    """Author with vote information."""
+
+    vote_score: int
+
+
+class AuthorVoteRead(AuthorRead):
+    """Author list item with vote information."""
+
+    vote_score: int
+
+
+class AuthorVoteListResponse(BaseModel):
+    """Paginated list of authors."""
+
+    items: list[AuthorVoteRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int

@@ -220,3 +220,30 @@ class BookListResponse(BaseModel):
     page: int
     per_page: int
     pages: int
+
+
+# ========================================
+# Vote Response
+# ========================================
+
+
+class BookVoteResponse(BookDetail):
+    """Book with vote information."""
+
+    vote_score: int
+
+
+class BookVoteListItem(BookListItem):
+    """Paginated list of books."""
+
+    vote_score: int
+
+
+class BookVoteListResponse(BaseModel):
+    """Paginated list of books."""
+
+    items: list[BookVoteListItem]
+    total: int
+    page: int
+    per_page: int
+    pages: int

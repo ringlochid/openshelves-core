@@ -248,6 +248,13 @@ const libraryApi = {
   async voteOnAuthor(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/jury/authors/${id}/vote`); },
   async voteOnBook(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/jury/books/${id}/vote`); },
   async voteOnCollection(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/jury/collections/${id}/vote`); },
+  // Curator approve/reject (requires jury:override scope)
+  async approveAuthor(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/authors/${id}/approve`); },
+  async rejectAuthor(id, reason) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/authors/${id}/reject?reason=${encodeURIComponent(reason)}`); },
+  async approveBook(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/approve`); },
+  async rejectBook(id, reason) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/books/${id}/reject?reason=${encodeURIComponent(reason)}`); },
+  async approveCollection(id) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/collections/${id}/approve`); },
+  async rejectCollection(id, reason) { return apiRequest(CONFIG.LIBRARY_URL, 'POST', `/collections/${id}/reject?reason=${encodeURIComponent(reason)}`); },
 
   // History
   async getBookHistory(bookId, page = 1) { return apiRequest(CONFIG.LIBRARY_URL, 'GET', `/books/${bookId}/history?page=${page}`, null, !!state.accessToken); },

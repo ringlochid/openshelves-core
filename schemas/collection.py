@@ -15,6 +15,7 @@ from .shared import (
     WorkflowMixin,
     BookBrief,
     SortDirection,
+    CoverKeyMixin,
 )
 
 
@@ -152,13 +153,12 @@ class CollectionListItem(BaseSchema):
     trending_score: float = 0.0
 
 
-class CollectionRead(BaseSchema, TimestampMixin):
+class CollectionRead(BaseSchema, TimestampMixin, CoverKeyMixin):
     """Basic collection information for list views."""
 
     id: int
     name: str
     description: str | None
-    cover_key: str | None
     status: str  # ContentStatus enum value
     is_public: bool
     subscriber_count: int
@@ -168,13 +168,14 @@ class CollectionRead(BaseSchema, TimestampMixin):
     created_by_user_id: UUID
 
 
-class CollectionDetail(BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin):
+class CollectionDetail(
+    BaseSchema, TimestampMixin, VersioningMixin, WorkflowMixin, CoverKeyMixin
+):
     """Complete collection information including workflow metadata."""
 
     id: int
     name: str
     description: str | None
-    cover_key: str | None
     created_by_user_id: UUID
     subscriber_count: int
     book_count: int = 0
@@ -243,6 +244,33 @@ class CollectionListResponse(BaseModel):
     """Offset-based paginated collection list response."""
 
     items: list[CollectionRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+# ========================================
+# Vote Response
+# ========================================
+
+
+class CollectionVoteResponse(CollectionDetail):
+    """Collection with vote information."""
+
+    vote_score: int
+
+
+class CollectionVoteRead(CollectionRead):
+    """Collection with vote information."""
+
+    vote_score: int
+
+
+class CollectionVoteListResponse(BaseModel):
+    """Paginated list of collections."""
+
+    items: list[CollectionVoteRead]
     total: int
     page: int
     per_page: int

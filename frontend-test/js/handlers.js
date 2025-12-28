@@ -821,10 +821,10 @@ function renderCollections(collections) {
     }
 
     container.innerHTML = collections.map(c => {
-        const hasCover = !!c.cover_key;
+        const hasCover = !!c.cover_urls;
         const coverHtml = hasCover
-            ? `<div style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;flex-shrink:0;">📚</div>`
-            : `<div style="width:48px;height:48px;border-radius:8px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;">📚</div>`;
+            ? `<img src="${c.cover_urls['600x900']}" style="width:48px;height:72px;border-radius:8px;object-fit:cover;flex-shrink:0;" alt="Cover">`
+            : `<div style="width:48px;height:72px;border-radius:8px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;">📚</div>`;
 
         return `
     <div class="item-card" onclick="viewCollectionDetail(${c.id})" style="display:flex;align-items:center;gap:16px;cursor:pointer;">
@@ -922,10 +922,10 @@ async function loadCollectionDetailPage() {
         window.currentCollection = collection; // Store full collection for reordering
 
         // Build cover HTML
-        const hasCover = !!collection.cover_key;
+        const hasCover = !!collection.cover_urls;
         const coverHtml = hasCover
-            ? `<div style="width:120px;height:120px;border-radius:12px;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);display:flex;align-items:center;justify-content:center;color:white;font-size:3rem;">📚</div>`
-            : `<div style="width:120px;height:120px;border-radius:12px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:3rem;">📚</div>`;
+            ? `<img src="${collection.cover_urls['600x900']}" style="width:120px;height:180px;border-radius:12px;object-fit:cover;" alt="Cover">`
+            : `<div style="width:120px;height:180px;border-radius:12px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:3rem;">📚</div>`;
 
         document.getElementById('collectionDetailPageContent').innerHTML = `
       <div style="display:flex;gap:24px;align-items:flex-start;">
@@ -1138,15 +1138,54 @@ function renderPendingItems(type, items, containerId) {
         return;
     }
 
+    // Check if user has curator scope (jury:override)
+    const isCurator = state.scopes && state.scopes.includes('jury:override');
+    // Check if user can vote
+    const canVote = state.scopes && (state.scopes.includes('jury:vote') || state.scopes.includes('jury:vote_weighted'));
+    // Check vote weight (5 if trusted, 1 otherwise)
+    const voteWeight = state.scopes && state.scopes.includes('jury:vote_weighted') ? 5 : 1;
+
     let html = '<table><thead><tr><th>ID</th><th>Name/Title</th><th>Vote Score</th><th>Action</th></tr></thead><tbody>';
     items.forEach(item => {
         const name = item.name || item.title;
+        const voteScore = item.vote_score || 0;
+        const threshold = 5;
+        const progress = Math.min(100, (voteScore / threshold) * 100);
+
+        // Vote score display with progress bar
+        const scoreHtml = `
+            <div style="min-width:80px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-weight:600;color:var(--primary);">${voteScore}</span>
+                    <span style="color:var(--text-muted);">/ ${threshold}</span>
+                </div>
+                <div style="height:4px;background:var(--bg-tertiary);border-radius:2px;margin-top:4px;">
+                    <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,var(--primary),var(--secondary));border-radius:2px;"></div>
+                </div>
+            </div>
+        `;
+
+        // Action buttons
+        let actionHtml = '';
+        if (canVote) {
+            actionHtml += `<button class="btn btn-sm btn-primary" onclick="voteOn${capitalize(type)}(${item.id})" title="Your vote weight: +${voteWeight}">+${voteWeight} Vote</button>`;
+        }
+        if (isCurator) {
+            actionHtml += `
+                <button class="btn btn-sm btn-success" onclick="curatorApprove${capitalize(type)}(${item.id})" style="margin-left:4px;" title="Curator instant approve">✓ Approve</button>
+                <button class="btn btn-sm btn-danger" onclick="curatorReject${capitalize(type)}(${item.id})" style="margin-left:4px;" title="Curator instant reject">✗ Reject</button>
+            `;
+        }
+        if (!canVote && !isCurator) {
+            actionHtml = '<span class="text-muted">No permission</span>';
+        }
+
         html += `<tr>
-      <td>${item.id}</td>
-      <td>${name}</td>
-      <td>${item.vote_score || 0}/5</td>
-      <td><button class="btn btn-sm btn-primary" onclick="voteOn${capitalize(type)}(${item.id})">+1 Vote</button></td>
-    </tr>`;
+            <td>${item.id}</td>
+            <td>${name}</td>
+            <td>${scoreHtml}</td>
+            <td style="white-space:nowrap;">${actionHtml}</td>
+        </tr>`;
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -1156,8 +1195,8 @@ function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1, -1); }
 
 async function voteOnAuthor(id) {
     try {
-        await libraryApi.voteOnAuthor(id);
-        toast('Vote cast!', 'success');
+        const result = await libraryApi.voteOnAuthor(id);
+        toast(`Vote cast! (+${result.vote_weight}) New score: ${result.new_vote_score}${result.auto_approved ? ' - AUTO APPROVED!' : ''}`, 'success');
         loadPendingAuthors();
     } catch (e) {
         toast(e.message || 'Vote failed', 'error');
@@ -1166,8 +1205,8 @@ async function voteOnAuthor(id) {
 
 async function voteOnBook(id) {
     try {
-        await libraryApi.voteOnBook(id);
-        toast('Vote cast!', 'success');
+        const result = await libraryApi.voteOnBook(id);
+        toast(`Vote cast! (+${result.vote_weight}) New score: ${result.new_vote_score}${result.auto_approved ? ' - AUTO APPROVED!' : ''}`, 'success');
         loadPendingBooks();
     } catch (e) {
         toast(e.message || 'Vote failed', 'error');
@@ -1176,11 +1215,81 @@ async function voteOnBook(id) {
 
 async function voteOnCollection(id) {
     try {
-        await libraryApi.voteOnCollection(id);
-        toast('Vote cast!', 'success');
+        const result = await libraryApi.voteOnCollection(id);
+        toast(`Vote cast! (+${result.vote_weight}) New score: ${result.new_vote_score}${result.auto_approved ? ' - AUTO APPROVED!' : ''}`, 'success');
         loadPendingCollections();
     } catch (e) {
         toast(e.message || 'Vote failed', 'error');
+    }
+}
+
+// Curator approve/reject functions
+async function curatorApproveAuthor(id) {
+    if (!confirm('Approve this author immediately?')) return;
+    try {
+        await libraryApi.approveAuthor(id);
+        toast('Author approved!', 'success');
+        loadPendingAuthors();
+    } catch (e) {
+        toast(e.message || 'Approve failed', 'error');
+    }
+}
+
+async function curatorRejectAuthor(id) {
+    const reason = prompt('Rejection reason:');
+    if (!reason) return;
+    try {
+        await libraryApi.rejectAuthor(id, reason);
+        toast('Author rejected', 'info');
+        loadPendingAuthors();
+    } catch (e) {
+        toast(e.message || 'Reject failed', 'error');
+    }
+}
+
+async function curatorApproveBook(id) {
+    if (!confirm('Approve this book immediately?')) return;
+    try {
+        await libraryApi.approveBook(id);
+        toast('Book approved!', 'success');
+        loadPendingBooks();
+    } catch (e) {
+        toast(e.message || 'Approve failed', 'error');
+    }
+}
+
+async function curatorRejectBook(id) {
+    const reason = prompt('Rejection reason:');
+    if (!reason) return;
+    try {
+        await libraryApi.rejectBook(id, reason);
+        toast('Book rejected', 'info');
+        loadPendingBooks();
+    } catch (e) {
+        toast(e.message || 'Reject failed', 'error');
+    }
+}
+
+async function curatorApproveCollection(id) {
+    if (!confirm('Approve this collection immediately?')) return;
+    try {
+        await libraryApi.approveCollection(id);
+        toast('Collection approved!', 'success');
+        loadPendingCollections();
+    } catch (e) {
+        toast(e.message || 'Approve failed', 'error');
+    }
+}
+
+async function curatorRejectCollection(id) {
+    const reason = prompt('Rejection reason:');
+    if (!reason) return;
+    try {
+        await libraryApi.rejectCollection(id, reason);
+        toast('Collection rejected', 'info');
+        loadPendingCollections();
+    } catch (e) {
+        toast(e.message || 'Reject failed', 'error');
     }
 }
 

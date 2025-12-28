@@ -3,7 +3,6 @@ Jury voting router for democratic content approval.
 Implements community voting system for PENDING content.
 """
 
-from schemas.book import BookListItem
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +12,21 @@ from database import get_async_db
 from cache import get_redis
 from dependencies.auth import get_current_user, require_scope
 from models import Author, Book, Collection, CollectionBook, ContentStatus
-from schemas.author import AuthorRead, AuthorListResponse, AuthorDetail
-from schemas.book import BookDetail, BookListItem, BookListRead, BookListResponse
-from schemas.collection import CollectionRead, CollectionDetail, CollectionListResponse
+from schemas.author import (
+    AuthorVoteResponse,
+    AuthorVoteListResponse,
+    AuthorVoteRead,
+)
+from schemas.book import (
+    BookVoteListItem,
+    BookVoteListResponse,
+    BookVoteResponse,
+)
+from schemas.collection import (
+    CollectionVoteRead,
+    CollectionVoteResponse,
+    CollectionVoteListResponse,
+)
 from schemas.jury import JuryVoteResponse, JuryVoteStatus
 from helpers.jury import (
     calculate_vote_weight,
@@ -37,7 +48,7 @@ router = APIRouter(prefix="/jury", tags=["Jury Voting"])
 # ========================================
 
 
-@router.get("/authors", response_model=AuthorListResponse)
+@router.get("/authors", response_model=AuthorVoteListResponse)
 async def list_pending_authors(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -101,8 +112,8 @@ async def list_pending_authors(
     result = await db.execute(query)
     authors = result.scalars().all()
 
-    response_data = AuthorListResponse(
-        items=[AuthorRead.model_validate(a) for a in authors],
+    response_data = AuthorVoteListResponse(
+        items=[AuthorVoteRead.model_validate(a) for a in authors],
         total=total,
         page=page,
         per_page=per_page,
@@ -117,7 +128,8 @@ async def list_pending_authors(
     return response_data
 
 
-@router.get("/authors/{author_id}", response_model=AuthorDetail)
+# TODO: Drop the cache logic if the hit rate is low
+@router.get("/authors/{author_id}", response_model=AuthorVoteResponse)
 async def get_pending_author_detail(
     author_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -150,7 +162,7 @@ async def get_pending_author_detail(
     # Try cache first (uses same author cache as public endpoint)
     cached = await cache.get_author(author_id, r)
     if cached and cached.get("status") == "PENDING":
-        return AuthorDetail.model_validate(cached)
+        return AuthorVoteResponse.model_validate(cached)
     query = (
         select(Author)
         .where(
@@ -172,10 +184,10 @@ async def get_pending_author_detail(
         )
 
     # Cache the result
-    author_dict = AuthorDetail.model_validate(author).model_dump(mode="json")
+    author_dict = AuthorVoteResponse.model_validate(author).model_dump(mode="json")
     await cache.cache_author(author_id, author_dict, r)
 
-    return AuthorDetail.model_validate(author)
+    return AuthorVoteResponse.model_validate(author)
 
 
 # ========================================
@@ -383,7 +395,7 @@ async def get_author_vote_status(
 # ========================================
 
 
-@router.get("/books", response_model=BookListResponse)
+@router.get("/books", response_model=BookVoteListResponse)
 async def list_pending_books(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -451,8 +463,8 @@ async def list_pending_books(
     result = await db.execute(query)
     books = result.scalars().all()
 
-    response = BookListResponse(
-        items=[BookListItem.model_validate(book) for book in books],
+    response = BookVoteListResponse(
+        items=[BookVoteListItem.model_validate(book) for book in books],
         total=total,
         page=page,
         per_page=per_page,
@@ -465,7 +477,7 @@ async def list_pending_books(
     return response
 
 
-@router.get("/books/{book_id}", response_model=BookDetail)
+@router.get("/books/{book_id}", response_model=BookVoteResponse)
 async def get_pending_book_detail(
     book_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -508,7 +520,7 @@ async def get_pending_book_detail(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found in jury queue"
         )
 
-    return BookDetail.model_validate(book)
+    return BookVoteResponse.model_validate(book)
 
 
 @router.post("/books/{book_id}/vote", response_model=JuryVoteResponse)
@@ -660,7 +672,7 @@ async def get_book_vote_status(
 # ========================================
 
 
-@router.get("/collections", response_model=CollectionListResponse)
+@router.get("/collections", response_model=CollectionVoteListResponse)
 async def list_pending_collections(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -722,8 +734,8 @@ async def list_pending_collections(
     result = await db.execute(query)
     collections = result.scalars().all()
 
-    response = CollectionListResponse(
-        items=[CollectionRead.model_validate(c) for c in collections],
+    response = CollectionVoteListResponse(
+        items=[CollectionVoteRead.model_validate(c) for c in collections],
         total=total,
         page=page,
         per_page=per_page,
@@ -738,7 +750,7 @@ async def list_pending_collections(
     return response
 
 
-@router.get("/collections/{collection_id}", response_model=CollectionDetail)
+@router.get("/collections/{collection_id}", response_model=CollectionVoteResponse)
 async def get_pending_collection_detail(
     collection_id: int,
     current_user: dict = Depends(require_scope("jury:view")),
@@ -782,7 +794,7 @@ async def get_pending_collection_detail(
             detail="Collection not found in jury queue",
         )
 
-    return CollectionDetail.model_validate(collection)
+    return CollectionVoteResponse.model_validate(collection)
 
 
 @router.post("/collections/{collection_id}/vote", response_model=JuryVoteResponse)

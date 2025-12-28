@@ -10,7 +10,6 @@ from pydantic import Field
 
 from .shared import BaseSchema
 
-
 # ========================================
 # Vote Response Schemas
 # ========================================
