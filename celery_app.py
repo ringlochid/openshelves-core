@@ -4,7 +4,7 @@ from celery.schedules import crontab
 from settings import settings
 
 app = Celery(
-    "library_app",
+    "openshelves_api",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
 )

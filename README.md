@@ -2,11 +2,11 @@
 
 > 📘 **Technical Report**: [View Full Architecture & Design](docs/technical-report.md)
 
-Production-grade wiki-style content platform with RBAC, trust scoring, jury-based governance, and full media upload pipeline.
+wiki-style content platform with RBAC, trust scoring, jury-based governance, and full media upload pipeline.
 
 ## 🚀 Live Demo & Testing
 
-**Public Test Environment**: [https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com/test](https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com/test)
+**Public Test Environment**: [TestLink](https://8kgscauecu.ap-southeast-2.awsapprunner.com/test)
 
 > 📧 **Bug Reports & Suggestions**: Please email [admin@ringlochid.me](mailto:admin@ringlochid.me)
 

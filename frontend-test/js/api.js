@@ -7,8 +7,8 @@
 // Configuration - Hardcoded App Runner URLs
 // ============================================
 const CONFIG = {
-  LIBRARY_URL: 'https://ppmrpzxpd4.ap-southeast-2.awsapprunner.com',
-  AUTH_URL: 'https://enx4hyajcj.ap-southeast-2.awsapprunner.com',
+  LIBRARY_URL: 'https://8kgscauecu.ap-southeast-2.awsapprunner.com',
+  AUTH_URL: 'https://xtw5jwgrsm.ap-southeast-2.awsapprunner.com',
 };
 
 // ============================================
