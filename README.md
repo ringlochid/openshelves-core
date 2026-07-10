@@ -4,9 +4,6 @@
 
 wiki-style content platform with RBAC, trust scoring, jury-based governance, and full media upload pipeline.
 
-## 🚀 Live Demo & Testing
-
-**Public Test Environment**: [TestLink](https://8kgscauecu.ap-southeast-2.awsapprunner.com/test)
 
 > 📧 **Bug Reports & Suggestions**: Please email [admin@ringlochid.me](mailto:admin@ringlochid.me)
 
@@ -106,6 +103,3 @@ See `.env.example` for all configuration options. Key settings:
 | `S3_BUCKET_NAME` | Target S3 bucket name |
 | `CLAMAV_ENABLED` | Toggle for virus scanning (`true`/`false`) |
 
-## License
-
-MIT
